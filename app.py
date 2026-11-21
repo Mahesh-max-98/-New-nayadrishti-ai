@@ -9,7 +9,9 @@ from database import init_db, get_drafts, get_draft_image
 from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-before-deployment")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
+if not app.secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY is required. Set a long, random secret in Render environment variables.")
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
