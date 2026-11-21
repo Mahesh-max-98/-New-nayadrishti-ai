@@ -58,7 +58,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
 b.disabled=true;b.textContent='Checking...';out.textContent='Checking feeds and generating images. This may take a little time.';
 try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
-const data=await r.json();out.textContent=JSON.stringify(data,null,2);if(r.ok)setTimeout(()=>location.reload(),1200);}
+const body=await r.text();let data;try{data=JSON.parse(body);}catch(parseError){out.textContent='Server returned HTML instead of JSON. HTTP '+r.status+' ('+r.statusText+'). Response: '+body.slice(0,700).replace(/\\s+/g,' ');return;}out.textContent=JSON.stringify(data,null,2);if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);return;}if(r.ok)setTimeout(()=>location.reload(),1200);}
 catch(e){out.textContent='Request failed: '+e.message;}finally{b.disabled=false;b.textContent='Run a feed check';}}
 </script>{% endif %}</body></html>
 """
