@@ -2,13 +2,7 @@ services:
   - type: web
     name: nayadrishti-ai
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-    plan: starter
-
-  - type: worker
-    name: nayadrishti-worker
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python worker.py
-    plan: starter
+    healthCheckPath: /health
