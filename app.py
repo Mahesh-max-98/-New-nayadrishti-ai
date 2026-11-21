@@ -60,7 +60,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 {% else %}
 <section class="panel"><div class="top"><h2>Feed controls</h2><form method="post" action="/logout"><button>Log out</button></form></div>
 <p>Configured feeds: <strong>{{ feed_count }}</strong></p>
-<p class="small">Each new story gets a generated editorial illustration. Facebook auto-publishing remains off for testing.</p>
+<p class="small">Uses an approved publisher photo when its article and image domains are allowlisted; otherwise it creates a topic-specific AI illustration. New cards include a redesigned headline and NayaDrishti branding. Facebook auto-publishing remains off for testing.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
 <section class="panel"><h2>Publishing status</h2>
@@ -71,7 +71,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="AI-generated editorial illustration for this news draft">
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% endif %}
-<div class="small">Image status: {{ d.image_status or 'pending' }}</div><p>{{ d.summary }}</p>
+<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else (d.image_status or 'pending')) }}</div><p>{{ d.summary }}</p>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
 {% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
 </section>{% endif %}</main>
