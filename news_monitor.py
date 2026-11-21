@@ -226,16 +226,25 @@ def check_feeds():
                            image_data=image_data, image_status=image_status)
                 result["drafts_saved"] += 1
 
+                # Publishing is a separate step from drafting. A Facebook API
+                # failure must not cause the same story to be regenerated every
+                # minute (which wastes AI/image credits and can create duplicate work).
+                status = "draft"
                 if image_data:
-                    publish_result = publish_image(summary, image_data)
-                    if publish_result.get("published"):
-                        result["published"] += 1
-                        status = "published"
-                    else:
-                        status = "draft"
-                else:
-                    status = "draft"
+                    try:
+                        publish_result = publish_image(summary, image_data)
+                        if publish_result.get("published"):
+                            result["published"] += 1
+                            status = "published"
+                    except Exception as publish_exc:
+                        log.exception("Facebook publishing failed for %s", source_name)
+                        result["errors"].append(
+                            f"{source_name} Facebook publish: "
+                            f"{type(publish_exc).__name__}: {str(publish_exc)[:180]}"
+                        )
 
+                # Always mark the item as seen after saving its draft. If publishing
+                # fails, the saved draft remains available for manual review.
                 set_draft_status(item_id, status)
                 remember(item_id, title, source_name, link, status)
                 result["new_items"] += 1
