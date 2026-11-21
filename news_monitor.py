@@ -81,7 +81,7 @@ def check_feeds():
                 image_data = None
                 image_status = "failed"
                 try:
-                    image_data = generate_news_image(title, description)
+                    image_data = generate_news_image(title, description, summary)
                     image_status = "ready"
                 except Exception as image_exc:
                     log.exception("Image generation failed for %s", source_name)
