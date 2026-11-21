@@ -1,59 +1,84 @@
-
-import os
 import hashlib
+import html
 import logging
-import feedparser
+import os
+import re
 
-from database import already_seen, remember, save_draft
+import feedparser
+import requests
+
 from ai_writer import write_summary
+from database import already_seen, remember, save_draft
 from facebook_publisher import publish_text
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("nayadrishti")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 
 def configured_feeds():
+    """Read feeds as Source Name=https://feed-url|Another Source=https://..."""
     raw = os.getenv("NEWS_FEEDS", "")
     feeds = []
-
-    for entry in raw.split("|"):
-        if "=" not in entry:
+    for part in raw.split("|"):
+        if "=" not in part:
             continue
-
-        name, url = entry.split("=", 1)
-
-        if name.strip() and url.strip():
-            feeds.append((name.strip(), url.strip()))
-
+        name, url = part.split("=", 1)
+        name, url = name.strip(), url.strip()
+        if name and url.startswith(("https://", "http://")):
+            feeds.append((name, url))
     return feeds
 
 
+def clean_text(value, max_length=5000):
+    value = re.sub(r"<[^>]+>", " ", value or "")
+    value = html.unescape(value)
+    return re.sub(r"\s+", " ", value).strip()[:max_length]
+
+
+def fetch_feed(url):
+    response = requests.get(
+        url,
+        headers={"User-Agent": "NayaDrishtiAI/1.0 (+RSS feed reader)"},
+        timeout=(8, 20),
+    )
+    response.raise_for_status()
+    parsed = feedparser.parse(response.content)
+    if parsed.bozo and not parsed.entries:
+        raise ValueError("The URL did not return a readable RSS/Atom feed.")
+    return parsed
+
+
 def check_feeds():
-    checked = 0
-    new_items = 0
-    published = 0
-    drafts_saved = 0
-    errors = []
+    feeds = configured_feeds()
+    result = {
+        "feeds_configured": len(feeds),
+        "feeds_checked": 0,
+        "new_items": 0,
+        "drafts_saved": 0,
+        "published": 0,
+        "already_seen": 0,
+        "errors": [],
+    }
 
-    for source_name, feed_url in configured_feeds():
+    if not feeds:
+        result["errors"].append(
+            "NEWS_FEEDS is empty or invalid. Add RSS/Atom feed URLs in Render."
+        )
+        return result
+
+    for source_name, feed_url in feeds:
         try:
-            feed = feedparser.parse(feed_url)
+            parsed = fetch_feed(feed_url)
+            result["feeds_checked"] += 1
 
-            if feed.bozo and not feed.entries:
-                raise ValueError(str(feed.bozo_exception))
-
-            checked += 1
-
-            # Process only ONE article per feed check.
-            for item in feed.entries[:1]:
-                title = (item.get("title") or "").strip()
+            # Feed order is normally newest first. Try up to 10 recent entries
+            # and process at most one unseen entry from each source per check.
+            for item in parsed.entries[:10]:
+                title = clean_text(item.get("title"), 300)
                 link = (item.get("link") or "").strip()
-
-                description = (
-                    item.get("summary")
-                    or item.get("description")
-                    or ""
-                ).strip()
+                description = clean_text(
+                    item.get("summary") or item.get("description") or ""
+                )
 
                 if not title or not link:
                     continue
@@ -63,66 +88,44 @@ def check_feeds():
                 ).hexdigest()
 
                 if already_seen(item_id):
+                    result["already_seen"] += 1
                     continue
 
-                try:
-                    log.info("Generating Gemini summary: %s", title)
+                summary = write_summary(
+                    title=title,
+                    description=description,
+                    source_name=source_name,
+                    article_url=link,
+                )
+                if not summary:
+                    raise ValueError("Groq returned an empty news post.")
 
-                    post = write_summary(
-                        title,
-                        description,
-                        source_name,
-                        link
-                    )
+                # Save draft before attempting publication so content is not lost.
+                save_draft(item_id, title, source_name, link, summary)
+                result["drafts_saved"] += 1
 
-                    if not post:
-                        raise ValueError("AI returned an empty summary")
+                publish_result = publish_text(summary, link)
+                if publish_result.get("published"):
+                    result["published"] += 1
+                    status = "published"
+                else:
+                    status = "draft"
 
-                    save_draft(
-                        item_id,
-                        title,
-                        source_name,
-                        link,
-                        post
-                    )
-
-                    result = publish_text(post, link)
-
-                    if result.get("published"):
-                        published += 1
-                        status = "published"
-                    else:
-                        drafts_saved += 1
-                        status = "draft"
-
-                    remember(
-                        item_id,
-                        title,
-                        source_name,
-                        link,
-                        status
-                    )
-
-                    new_items += 1
-
-                except Exception as exc:
-                    log.exception("Article processing failed: %s", link)
-                    errors.append(
-                        f"{source_name}: {type(exc).__name__}: {str(exc)[:200]}"
-                    )
+                remember(item_id, title, source_name, link, status)
+                result["new_items"] += 1
+                break
 
         except Exception as exc:
-            log.exception("Feed failed: %s", feed_url)
-            errors.append(
-                f"{source_name}: {type(exc).__name__}: {str(exc)[:200]}"
+            log.exception("Feed processing failed for %s", source_name)
+            result["errors"].append(
+                f"{source_name}: {type(exc).__name__}: {str(exc)[:240]}"
             )
 
-    return {
-        "feeds_checked": checked,
-        "new_items": new_items,
-        "drafts_saved": drafts_saved,
-        "published": published,
-        "errors": errors,
-        "note": "Only one article per feed is processed per check. Facebook publishing remains controlled by its environment setting."
-    }
-    
+    result["facebook_publishing_enabled"] = (
+        os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
+    )
+    result["note"] = (
+        "At most one new item per feed is processed during each manual check. "
+        "Only RSS/Atom feeds are supported; a Facebook Page URL is not a feed."
+    )
+    return result
