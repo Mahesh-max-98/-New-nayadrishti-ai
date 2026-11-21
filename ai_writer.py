@@ -21,15 +21,14 @@ is unclear, omit it. Do not claim you opened or independently verified the link.
 
 STRICT OUTPUT RULES:
 - Write Nepali first, then English.
-- Keep the ENTIRE post to 3-5 short lines total. Do not write paragraphs.
+- Keep the ENTIRE post to 3-4 short lines total.
 - Line 1: a short Nepali headline with one relevant emoji.
 - Line 2: one short Nepali sentence with the key update.
 - Line 3: a short English headline with one relevant emoji.
 - Line 4: one short English sentence faithfully translating the Nepali update.
-- If the supplied information is too limited, use only 3 lines rather than
-  adding unsupported detail.
+- Keep each sentence concise. Do not add background or extra details.
 - Use natural, correct Nepali and clear, simple English.
-- Use only 1-2 relevant emojis in the whole post; emojis must match the topic.
+- Include 2 relevant emojis in every post: one in each headline.
 - Do NOT show the source name, source label, article URL, "Read more", credits,
   hashtags, greetings, explanations, or extra commentary.
 - Do not use markdown dividers or bullet points.
@@ -55,14 +54,19 @@ Article URL: {article_url}
                     "role": "system",
                     "content": (
                         "You are a precise bilingual news editor. Follow the "
-                        "requested format exactly. Accuracy and brevity matter "
-                        "more than style."
+                        "requested format exactly. Return only the finished "
+                        "short post, not analysis or explanations."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
-            "max_tokens": 250,
+            # GPT-OSS spends part of its completion budget on reasoning.
+            # Hide that field and keep reasoning effort low so there is room
+            # for the actual Facebook post in message.content.
+            "include_reasoning": False,
+            "reasoning_effort": "low",
+            "max_completion_tokens": 600,
         },
         timeout=45,
     )
@@ -78,11 +82,29 @@ Article URL: {article_url}
     if not choices:
         raise RuntimeError("Groq returned no generated response.")
 
-    result = (
-        choices[0].get("message", {}).get("content") or ""
-    ).strip()
+    choice = choices[0]
+    message = choice.get("message") or {}
+    result = message.get("content") or ""
 
+    # Some compatible APIs may return text as content blocks rather than a
+    # single string. Extract only text blocks; never use private reasoning.
+    if isinstance(result, list):
+        result = "\\n".join(
+            block.get("text", "")
+            for block in result
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+
+    result = str(result).strip()
     if not result:
-        raise RuntimeError("Groq returned an empty summary.")
+        finish_reason = choice.get("finish_reason", "unknown")
+        usage = data.get("usage") or {}
+        completion_tokens = usage.get("completion_tokens", "unknown")
+        raise RuntimeError(
+            "Groq returned no post text "
+            f"(finish_reason={finish_reason}, "
+            f"completion_tokens={completion_tokens}). "
+            "Check the configured GROQ_MODEL and Groq response."
+        )
 
     return result
