@@ -205,7 +205,8 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     headline = re.sub(r"\s+", " ", (title or "").strip())[:250]
     facts = re.sub(r"\s+", " ", (description or "").strip())[:1100]
     post = re.sub(r"\s+", " ", (summary or "").strip())[:450]
-    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:900]\n    direction = _visual_direction(headline, facts, post, brief)
+    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:900]
+    direction = _visual_direction(headline, facts, post, brief)
 
     return (
         "Create ONE high-quality editorial illustration for the exact news story below. "
