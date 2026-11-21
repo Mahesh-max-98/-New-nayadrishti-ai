@@ -185,7 +185,10 @@ def check_feeds():
         try:
             parsed = fetch_feed(feed_url)
             result["feeds_checked"] += 1
-            for item in parsed.entries[:10]:
+            new_items_from_feed = 0
+            # Scan up to 30 recent entries so older seen stories do not hide newer ones.
+            # Limit each feed to 2 new drafts per run to control free-tier AI usage.
+            for item in parsed.entries[:30]:
                 title = clean_text(item.get("title"), 300)
                 link = (item.get("link") or "").strip()
                 description = clean_text(item.get("summary") or item.get("description") or "")
@@ -266,7 +269,9 @@ def check_feeds():
                 set_draft_status(item_id, status)
                 remember(item_id, title, source_name, link, status)
                 result["new_items"] += 1
-                break
+                new_items_from_feed += 1
+                if new_items_from_feed >= 2:
+                    break
         except Exception as exc:
             log.exception("Feed processing failed for %s", source_name)
             result["errors"].append(f"{source_name}: {type(exc).__name__}: {str(exc)[:220]}")
