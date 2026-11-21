@@ -44,11 +44,12 @@ def check_feeds():
 
             checked += 1
 
-            for item in feed.entries[:20]:
+            # Process only ONE article per feed check.
+            for item in feed.entries[:1]:
                 title = (item.get("title") or "").strip()
                 link = (item.get("link") or "").strip()
 
-                summary = (
+                description = (
                     item.get("summary")
                     or item.get("description")
                     or ""
@@ -58,18 +59,18 @@ def check_feeds():
                     continue
 
                 item_id = hashlib.sha256(
-                    (source_name + "|" + link).encode()
+                    (source_name + "|" + link).encode("utf-8")
                 ).hexdigest()
 
                 if already_seen(item_id):
                     continue
 
                 try:
-                    log.info("Generating summary: %s", title)
+                    log.info("Generating Gemini summary: %s", title)
 
                     post = write_summary(
                         title,
-                        summary,
+                        description,
                         source_name,
                         link
                     )
@@ -105,20 +106,15 @@ def check_feeds():
                     new_items += 1
 
                 except Exception as exc:
-                    log.exception("Could not process item: %s", link)
-
+                    log.exception("Article processing failed: %s", link)
                     errors.append(
-                        f"{source_name}: {type(exc).__name__}"
+                        f"{source_name}: {type(exc).__name__}: {str(exc)[:200]}"
                     )
-
-                    # Failed articles are NOT marked as seen.
-                    # They can be retried during the next check.
 
         except Exception as exc:
             log.exception("Feed failed: %s", feed_url)
-
             errors.append(
-                f"{source_name}: {type(exc).__name__}"
+                f"{source_name}: {type(exc).__name__}: {str(exc)[:200]}"
             )
 
     return {
@@ -127,6 +123,6 @@ def check_feeds():
         "drafts_saved": drafts_saved,
         "published": published,
         "errors": errors,
-        "note": "Generated summaries are saved as drafts when publishing is disabled."
+        "note": "Only one article per feed is processed per check. Facebook publishing remains controlled by its environment setting."
     }
     
