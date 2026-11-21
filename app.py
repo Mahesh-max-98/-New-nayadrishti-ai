@@ -1,5 +1,6 @@
 import os
 import threading
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for, Response
@@ -22,7 +23,7 @@ init_db()
 # Keep feed checks out of HTTP requests and prevent scheduled/manual overlap.
 _check_lock = threading.Lock()
 _feed_execution_lock = threading.Lock()
-_check_status = {"running": False, "finished": False, "result": None, "error": None}
+_check_status = {"running": False, "finished": False, "result": None, "error": None, "started_at": None, "finished_at": None, "trigger": None}
 
 
 def _execute_feed_check():
@@ -32,13 +33,16 @@ def _execute_feed_check():
     try:
         result = check_feeds()
         with _check_lock:
-            _check_status = {"running": False, "finished": True, "result": result, "error": None}
+            _check_status = {"running": False, "finished": True, "result": result, "error": None, "started_at": _check_status.get("started_at"), "finished_at": datetime.now(timezone.utc).isoformat(), "trigger": _check_status.get("trigger", "manual")}
     except Exception as exc:
         app.logger.exception("Feed check failed")
         with _check_lock:
             _check_status = {
                 "running": False, "finished": True, "result": None,
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                "started_at": _check_status.get("started_at"),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "trigger": _check_status.get("trigger", "manual"),
             }
     finally:
         _feed_execution_lock.release()
@@ -54,17 +58,20 @@ def _scheduled_feed_check():
         app.logger.info("Scheduled feed check skipped: another check is already running.")
         return
     with _check_lock:
-        _check_status = {"running": True, "finished": False, "result": None, "error": None}
+        _check_status = {"running": True, "finished": False, "result": None, "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "trigger": "automatic"}
     try:
         result = check_feeds()
         with _check_lock:
-            _check_status = {"running": False, "finished": True, "result": result, "error": None}
+            _check_status = {"running": False, "finished": True, "result": result, "error": None, "started_at": _check_status.get("started_at"), "finished_at": datetime.now(timezone.utc).isoformat(), "trigger": "automatic"}
     except Exception as exc:
         app.logger.exception("Scheduled feed check failed")
         with _check_lock:
             _check_status = {
                 "running": False, "finished": True, "result": None,
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                "started_at": _check_status.get("started_at"),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "trigger": "automatic",
             }
     finally:
         _feed_execution_lock.release()
@@ -113,6 +120,9 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 {% else %}
 <section class="panel"><div class="top"><h2>Feed controls</h2><form method="post" action="/logout"><button>Log out</button></form></div>
 <p>Configured feeds: <strong>{{ feed_count }}</strong></p>
+<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Check interval: <strong>{{ check_interval }} seconds</strong></p>
+<p class="small">Automatic checks run only while this free Render web service is awake. GitHub keep-awake pings are best-effort; this is not guaranteed 24/7 monitoring.</p>
+<div id="monitoring-status" class="status">Loading latest monitoring status...</div>
 <p class="small">Uses an approved publisher photo when its article and image domains are allowlisted; otherwise it creates a topic-specific AI illustration. New cards include a redesigned headline and NayaDrishti branding. Facebook auto-publishing remains off for testing.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
@@ -134,9 +144,10 @@ b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started.
 try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});const data=await r.json();
 if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);b.disabled=false;b.textContent='Run a feed check';return;}
 const poll=async()=>{try{const s=await fetch('/run-check',{headers:{'Accept':'application/json'}});const state=await s.json();
-if(state.running){out.textContent='Still checking feeds and generating images...';setTimeout(poll,2500);return;}
+if(state.running){out.textContent='Still checking feeds and generating images...';document.getElementById("monitoring-status").textContent="A news check is currently running ("+(state.trigger||"unknown")+" check).";setTimeout(poll,2500);return;}
 if(state.finished){
 const x=state.result||{};
+document.getElementById("monitoring-status").textContent="Last check: "+(state.finished_at||"time unavailable")+" · Started: "+(state.started_at||"unknown")+" · Type: "+(state.trigger||"unknown");
 if(state.error){out.textContent='Feed check failed: '+state.error;}
 else if(x.errors&&x.errors.length){out.textContent='Feed check finished. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nAlready seen: '+x.already_seen+'\\nErrors:\\n- '+x.errors.join('\\n- ');}
 else if(x.new_items===0){out.textContent='Feed check finished, but no new unseen stories were found. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nAlready seen: '+x.already_seen+'. Try again later when a source publishes a new item.';}
@@ -145,6 +156,7 @@ b.disabled=false;b.textContent='Run a feed check';setTimeout(()=>location.reload
 out.textContent='Waiting for feed check status...';setTimeout(poll,2500);
 }catch(e){out.textContent='Could not read check status: '+e.message;b.disabled=false;b.textContent='Run a feed check';}};poll();
 }catch(e){out.textContent='Request failed: '+e.message;b.disabled=false;b.textContent='Run a feed check';}}
+window.addEventListener("load",async()=>{try{const r=await fetch("/run-check",{headers:{"Accept":"application/json"}});if(!r.ok)return;const s=await r.json();const el=document.getElementById("monitoring-status");if(!el)return;if(s.running){el.textContent="A news check is currently running ("+(s.trigger||"unknown")+" check).";}else if(s.finished){el.textContent="Last check: "+(s.finished_at||"time unavailable")+" · Started: "+(s.started_at||"unknown")+" · Type: "+(s.trigger||"unknown");}else{el.textContent="No check has completed since this server started. Automatic monitoring is "+("{{ \"enabled\" if monitoring_enabled else \"disabled\" }}")+". The next scheduled check runs while Render is awake.";}}catch(e){}});
 </script>{% endif %}</body></html>
 """
 
@@ -164,6 +176,8 @@ def home():
     return render_template_string(
         PAGE, logged_in=logged_in, drafts=get_drafts() if logged_in else [],
         feed_count=len(configured_feeds()),
+        monitoring_enabled=os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true",
+        check_interval=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "60"))),
         publishing=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true",
         error=request.args.get("error"),
     )
@@ -212,7 +226,7 @@ def run_check():
     with _check_lock:
         if _check_status["running"]:
             return jsonify(_check_status), 202
-        _check_status = {"running": True, "finished": False, "result": None, "error": None}
+        _check_status = {"running": True, "finished": False, "result": None, "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "trigger": "manual"}
 
     thread = threading.Thread(target=_run_feed_check_in_background, daemon=True)
     thread.start()
