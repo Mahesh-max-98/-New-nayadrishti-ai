@@ -38,18 +38,29 @@ def _compose_news_card(image, title, summary, ai_generated=False):
     # Only AI-created scenes receive this label. Original publisher photos
     # must not be mislabeled as AI-generated.
     if ai_generated:
-        label = "AI-GENERATED VISUAL"
+        label = "AI-GENERATED ILLUSTRATION"
         label_font = ImageFont.load_default()
+        for path in (
+            os.getenv("NEWS_FONT_PATH", ""),
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        ):
+            if path and os.path.isfile(path):
+                try:
+                    label_font = ImageFont.truetype(path, 25)
+                    break
+                except OSError:
+                    pass
         label_box = draw.textbbox((0, 0), label, font=label_font)
         label_width = label_box[2] - label_box[0]
         label_height = label_box[3] - label_box[1]
-        badge_padding_x, badge_padding_y = 14, 10
+        badge_padding_x, badge_padding_y = 18, 13
         badge_right, badge_top = 1200 - 36, 28
-        badge_left = badge_right - label_width - badge_padding_x * 2
+        badge_left = max(24, badge_right - label_width - badge_padding_x * 2)
         badge_bottom = badge_top + label_height + badge_padding_y * 2
         draw.rounded_rectangle(
             (badge_left, badge_top, badge_right, badge_bottom),
-            radius=10, fill=(8, 15, 32, 205)
+            radius=12, fill=(8, 15, 32, 225)
         )
         draw.text(
             (badge_left + badge_padding_x, badge_top + badge_padding_y - 1),
@@ -222,46 +233,52 @@ def _visual_direction(title, description, summary, visual_brief=""):
 
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
-    """Build a headline-led prompt that treats feed text as untrusted facts."""
-    headline = re.sub(r"\s+", " ", (title or "").strip())[:250]
-    facts = re.sub(r"\s+", " ", (description or "").strip())[:1100]
-    post = re.sub(r"\s+", " ", (summary or "").strip())[:450]
-    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:900]
+    """Build a compact, fact-prioritised prompt for a clearly labelled news reconstruction."""
+    headline = re.sub(r"\\s+", " ", (title or "").strip())[:260]
+    facts = re.sub(r"\\s+", " ", (description or "").strip())[:520]
+    post = re.sub(r"\\s+", " ", (summary or "").strip())[:260]
+    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:320]
     direction = _visual_direction(headline, facts, post, brief)
 
-    # Cloudflare FLUX accepts at most 2,048 characters. Keep the headline and
-    # story-specific direction first so truncation never removes the main subject.
+    # Put story facts before photographic styling. The 2,048-character API limit
+    # must never cut off the actual event and leave only generic camera language.
     prompt = (
-        "Create a premium, highly realistic PHOTOREALISTIC EDITORIAL RECONSTRUCTION "
-        "for a news graphic, with the visual quality of a professional full-frame "
-        "camera photograph. This is an illustrative reconstruction, NOT evidence "
-        "and NOT a photograph of the actual event. Accuracy is more important than "
-        "drama. First identify the single central subject and the exact action "
-        "stated in the headline; use the description only to clarify it. Build one "
-        "clear, believable scene around that subject. Preserve real-world scale, "
-        "anatomy, object shape, materials, geography and cause-and-effect. Use "
-        "natural daylight or plausible indoor lighting, physically correct "
-        "shadows, realistic lens perspective, restrained depth of field, subtle "
-        "sensor grain, natural color, fine texture and documentary composition. "
-        "Avoid glossy CGI, 3D-render appearance, painting, cartoon style, waxy "
-        "surfaces, plastic skin, malformed hands, duplicated objects, impossible "
-        "geometry, fake logos, dramatic fantasy lighting and excessive saturation. "
-        "Never invent a named person, recognizable face, exact location, uniform, "
-        "team, company, flag, score, result, quote, sign, number, casualty, injury, "
-        "damage, crowd or action not explicitly supported by the report. Never "
-        "make an allegation look proven or imply that a person caused an event. "
-        "For politics, crime, health, disasters or disputed claims, use a neutral "
-        "contextual still-life or wide environmental scene with no identifiable "
-        "people and no sensational details. If the facts do not establish the "
-        "actual scene, do NOT pretend to depict it; create a restrained symbolic "
-        "visual of the confirmed subject instead. One coherent 4:3 landscape "
-        "composition, clear subject, uncluttered background, no collage, no text, "
-        "letters, numbers, watermark, fake screenshot, food or tea. "
-        "STORY DIRECTION: " + direction[:420] + " "
-        "HEADLINE: " + headline[:200] + " "
-        "VISUAL BRIEF: " + brief[:220] + " "
-        "SOURCE FACTS: " + facts[:300] + " "
-        "POST CONTEXT: " + post[:150]
+        "NEWS EDITORIAL RECONSTRUCTION — NOT A REAL NEWS PHOTOGRAPH. "
+        "Create one exceptionally natural, believable, photorealistic editorial "
+        "illustration. ACCURACY FIRST: depict only the central subject and event "
+        "explicitly stated in the HEADLINE and supported by SOURCE FACTS. Do not "
+        "turn a preview into a result, rumour into fact, proposal into a decision, "
+        "transfer into match action, announcement into a staged event, or allegation "
+        "into proven guilt. Do not infer what happened outside the supplied facts. "
+        "If the exact scene, people, place, timing or action is not confirmed, do not "
+        "recreate it; use a restrained symbolic or environmental visual of the "
+        "confirmed subject instead. Never invent or imitate a real person's face. "
+        "No fabricated names, identifiable people, uniforms, club/company logos, "
+        "flags, signs, readable text, numbers, scores, documents, quotes, locations, "
+        "crowd size, damage, casualties, injuries, weapons, emergency scenes or "
+        "dramatic actions. No graphic, sensational or partisan framing. "
+        "SCENE: one clear main subject, correct object type and scale, physically "
+        "plausible arrangement, accurate sport/equipment/infrastructure when relevant, "
+        "natural background details that do not imply unreported facts. Match the "
+        "visual category to the event, not merely a broad keyword. No unrelated "
+        "props, no food or tea, no mixed sports, no collage, no split-screen. "
+        "PHOTO REALISM: professional documentary-editorial photography aesthetic; "
+        "natural available light, realistic exposure and white balance, physically "
+        "consistent shadows, true-to-life materials and textures, subtle fine grain, "
+        "credible lens perspective, restrained depth of field, realistic atmospheric "
+        "detail, balanced contrast, natural colour, sharp but not oversharpened. "
+        "Avoid CGI, 3D render, illustration brush strokes, plastic/waxy surfaces, "
+        "over-smooth skin, distorted anatomy, extra fingers, duplicated objects, "
+        "impossible geometry, oversaturation, cinematic fantasy lighting and fake "
+        "HDR. Keep the scene calm, clear, contextually accurate and non-deceptive. "
+        "COMPOSITION: landscape 4:3, strong readable subject, uncluttered frame, "
+        "professional editorial crop, sufficient clean lower space for the news-card "
+        "overlay. No text, letters, watermark or fake camera/date stamp. "
+        "HEADLINE (primary facts): " + headline + " "
+        "SOURCE FACTS (only evidence to depict): " + facts + " "
+        "VISUAL BRIEF: " + brief + " "
+        "CATEGORY DIRECTION: " + direction[:260] + " "
+        "CAPTION CONTEXT: " + post
     )
     return prompt[:2048]
 
