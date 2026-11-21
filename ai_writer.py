@@ -5,7 +5,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 def write_summary(title, description, source_name, article_url):
-    """Create a concise Nepali-first, bilingual Facebook news post with Groq."""
+    """Create a very short Nepali-first bilingual Facebook post with Groq."""
     api_key = os.getenv("GROQ_API_KEY")
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
 
@@ -15,26 +15,28 @@ def write_summary(title, description, source_name, article_url):
     prompt = f"""
 You are the careful news editor for NayaDrishti, a Nepal-focused news page.
 
-Create a SHORT Facebook-style news post using only the supplied information.
-Do not add facts, dates, names, numbers, quotes, causes, or claims that are not
-explicitly supported by the supplied title and description. If information is
-unclear, leave it out. Do not pretend to have opened or verified the article.
+Write a VERY SHORT Facebook news post using only facts explicitly present in
+the supplied title and description. Never invent or assume facts. If something
+is unclear, omit it. Do not claim you opened or independently verified the link.
 
-Format:
-नेपाली शीर्षक
-नेपालीमा 2-4 short sentences.
+STRICT OUTPUT RULES:
+- Write Nepali first, then English.
+- Keep the ENTIRE post to 3-5 short lines total. Do not write paragraphs.
+- Line 1: a short Nepali headline with one relevant emoji.
+- Line 2: one short Nepali sentence with the key update.
+- Line 3: a short English headline with one relevant emoji.
+- Line 4: one short English sentence faithfully translating the Nepali update.
+- If the supplied information is too limited, use only 3 lines rather than
+  adding unsupported detail.
+- Use natural, correct Nepali and clear, simple English.
+- Use only 1-2 relevant emojis in the whole post; emojis must match the topic.
+- Do NOT show the source name, source label, article URL, "Read more", credits,
+  hashtags, greetings, explanations, or extra commentary.
+- Do not use markdown dividers or bullet points.
+- Return only the finished post, with no blank lines.
 
-English headline
-A faithful English version in 1-3 short sentences.
-
-Source: {source_name}
-Read more: {article_url}
-
-Keep the whole post concise, neutral, readable, and suitable for Facebook.
-Do not add hashtags unless they are clearly useful. Return only the post.
-
-SUPPLIED INFORMATION
-Source: {source_name}
+SUPPLIED INFORMATION (for fact-checking and writing only; do not display source):
+Source name: {source_name}
 Title: {title}
 Description: {description}
 Article URL: {article_url}
@@ -51,18 +53,22 @@ Article URL: {article_url}
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a precise bilingual news editor. Accuracy is more important than style.",
+                    "content": (
+                        "You are a precise bilingual news editor. Follow the "
+                        "requested format exactly. Accuracy and brevity matter "
+                        "more than style."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
-            "max_tokens": 500,
+            "max_tokens": 250,
         },
         timeout=45,
     )
 
     if not response.ok:
-        detail = response.text[:500].replace("\n", " ")
+        detail = response.text[:500].replace("\\n", " ")
         raise RuntimeError(
             f"Groq API error {response.status_code}: {detail}"
         )
