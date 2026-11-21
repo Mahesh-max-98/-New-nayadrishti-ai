@@ -46,7 +46,7 @@ def configured_feeds():
 
 
 def clean_text(value, max_length=5000):
-    value = re.sub(r"<[^>]+>", " ", value or "")
+    value = re.sub(r"\s+", " ", value).strip()[:max_length]
     value = html.unescape(value)
     return re.sub(r"\\s+", " ", value).strip()[:max_length]
 
@@ -99,7 +99,7 @@ def _candidate_feed_images(item, article_url):
             if (link.get("type") or "").lower().startswith("image/"):
                 candidates.append(urljoin(article_url, link["href"]))
     raw_html = item.get("summary") or item.get("description") or ""
-    match = re.search(r'<img[^>]+src=["\\']([^"\\']+)["\\']', raw_html, re.I)
+    match = re.search(r"""<img[^>]+src=["']([^"']+)["']""", raw_html, re.I)
     if match:
         candidates.append(urljoin(article_url, html.unescape(match.group(1))))
     # Keep order but remove duplicates.
@@ -230,7 +230,7 @@ def check_feeds():
 
                 if image_data:
                     publish_result = publish_image(summary, image_data)
-                    if publish_result.get("published):
+                    if publish_result.get("published"):
                         result["published"] += 1
                         status = "published"
                     else:
