@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 import feedparser
 import requests
 
-from ai_writer import write_summary, write_visual_brief
+from ai_writer import write_summary
 from database import already_seen, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
 from image_generator import create_publisher_news_card, generate_news_image
@@ -187,7 +187,7 @@ def check_feeds():
             result["feeds_checked"] += 1
             new_items_from_feed = 0
             # Scan up to 30 recent entries so older seen stories do not hide newer ones.
-            # Limit each feed to 2 new drafts per run to control free-tier AI usage.
+            # Limit each feed to 1 new draft per run to control free-tier AI usage.
             for item in parsed.entries[:30]:
                 title = clean_text(item.get("title"), 300)
                 link = (item.get("link") or "").strip()
@@ -214,25 +214,9 @@ def check_feeds():
                         image_status = "publisher_photo"
                         result["publisher_photos_used"] += 1
                     else:
-                        # Ask Groq to identify the exact event and main subject,
-                        # not just the broad topic. If this extra request fails,
-                        # continue with the existing headline/description prompt.
-                        visual_brief = ""
-                        try:
-                            visual_brief = write_visual_brief(
-                                title=title,
-                                description=description,
-                                source_name=source_name,
-                            )
-                        except Exception as brief_exc:
-                            log.warning(
-                                "Visual brief unavailable for %s; using feed context: %s",
-                                source_name,
-                                brief_exc,
-                            )
-                        image_data = generate_news_image(
-                            title, description, summary, visual_brief=visual_brief
-                        )
+                        # Avoid a second Groq request for every story. The image
+                        # prompt uses the headline, feed description and generated post.
+                        image_data = generate_news_image(title, description, summary)
                         image_status = "ai_illustration"
                         result["ai_illustrations_used"] += 1
                 except Exception as image_exc:
@@ -270,7 +254,7 @@ def check_feeds():
                 remember(item_id, title, source_name, link, status)
                 result["new_items"] += 1
                 new_items_from_feed += 1
-                if new_items_from_feed >= 2:
+                if new_items_from_feed >= 1:
                     break
         except Exception as exc:
             log.exception("Feed processing failed for %s", source_name)
