@@ -1,12 +1,9 @@
 import os
 from functools import wraps
 
-from flask import (
-    Flask, jsonify, redirect, render_template_string,
-    request, session, url_for
-)
+from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for, Response
 
-from database import init_db, get_drafts
+from database import init_db, get_drafts, get_draft_image
 from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
@@ -19,81 +16,53 @@ app.config.update(
 init_db()
 
 PAGE = """
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
+<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NayaDrishti AI</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f5f9;color:#172033;font-family:Arial,sans-serif}
-.wrap{max-width:920px;margin:auto;padding:18px}
-header{background:#172554;color:#fff;padding:24px;border-radius:16px;margin:8px 0 18px}
+.wrap{max-width:920px;margin:auto;padding:18px}header{background:#172554;color:#fff;padding:24px;border-radius:16px;margin:8px 0 18px}
 h1{margin:0 0 6px;font-size:27px}header p{margin:4px 0;color:#dbeafe}
 .panel,.draft{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin:14px 0}
-button,.btn{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;font-size:15px}
-button:disabled{opacity:.55}input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0 14px;font-size:16px}
+button{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;font-size:15px}
+input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0 14px;font-size:16px}
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
 .draft h3{margin:0 0 8px}.draft p{white-space:pre-wrap;line-height:1.55}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
-a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
-</style>
-</head>
-<body><main class="wrap">
+a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:100%;max-height:420px;object-fit:contain;background:#0f172a;border-radius:10px;margin:10px 0}
+</style></head><body><main class="wrap">
 <header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
 {% if not logged_in %}
-<section class="panel">
-<h2>Admin sign in</h2>
-<p class="small">Sign in to check feeds and view generated drafts.</p>
-<form method="post" action="/login">
-<label for="password">Admin password</label>
+<section class="panel"><h2>Admin sign in</h2><p class="small">Sign in to check feeds and view generated drafts.</p>
+<form method="post" action="/login"><label for="password">Admin password</label>
 <input id="password" name="password" type="password" required autocomplete="current-password">
-<button type="submit">Sign in</button>
-</form>
-{% if error %}<p class="danger">{{ error }}</p>{% endif %}
-</section>
+<button type="submit">Sign in</button></form>{% if error %}<p class="danger">{{ error }}</p>{% endif %}</section>
 {% else %}
-<section class="panel">
-<div class="top"><h2>Feed controls</h2><form method="post" action="/logout"><button type="submit">Log out</button></form></div>
+<section class="panel"><div class="top"><h2>Feed controls</h2><form method="post" action="/logout"><button>Log out</button></form></div>
 <p>Configured feeds: <strong>{{ feed_count }}</strong></p>
-<p class="small">A check reads the newest entry from each configured RSS/Atom feed. Only new entries are summarized.</p>
+<p class="small">Each new story gets a generated editorial illustration. Facebook auto-publishing remains off for testing.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
-<div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div>
-</section>
-<section class="panel">
-<h2>Publishing status</h2>
+<div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
+<section class="panel"><h2>Publishing status</h2>
 <p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
-<p class="small">Keep this OFF until you have checked several drafts for accuracy and verified your Page token.</p>
-</section>
-<section>
-<div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
-{% for d in drafts %}
-<article class="draft">
-<h3>{{ d.title }}</h3><div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
-<p>{{ d.summary }}</p>
-<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a>
-</article>
-{% else %}
-<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render's NEWS_FEEDS setting, then run a feed check.</div>
-{% endfor %}
-</section>
-{% endif %}
-</main>
-{% if logged_in %}
-<script>
-async function runCheck(){
- const b=document.getElementById('check'), out=document.getElementById('result');
- b.disabled=true;b.textContent='Checking...';out.textContent='Checking configured feeds. Please wait.';
- try{
-  const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
-  const data=await r.json();
-  out.textContent=JSON.stringify(data,null,2);
- }catch(e){out.textContent='Request failed: '+e.message;}
- finally{b.disabled=false;b.textContent='Run a feed check';}
-}
-</script>
-{% endif %}
-</body></html>
+<p class="small">Do not enable until you have reviewed generated text and images.</p></section>
+<section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
+{% for d in drafts %}<article class="draft"><h3>{{ d.title }}</h3>
+<div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
+{% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="AI-generated editorial illustration for this news draft">
+{% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% endif %}
+<div class="small">Image status: {{ d.image_status or 'pending' }}</div><p>{{ d.summary }}</p>
+<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
+{% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
+</section>{% endif %}</main>
+{% if logged_in %}<script>
+async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
+b.disabled=true;b.textContent='Checking...';out.textContent='Checking feeds and generating images. This may take a little time.';
+try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
+const data=await r.json();out.textContent=JSON.stringify(data,null,2);if(r.ok)setTimeout(()=>location.reload(),1200);}
+catch(e){out.textContent='Request failed: '+e.message;}finally{b.disabled=false;b.textContent='Run a feed check';}}
+</script>{% endif %}</body></html>
 """
+
 
 def login_required(fn):
     @wraps(fn)
@@ -107,11 +76,8 @@ def login_required(fn):
 @app.get("/")
 def home():
     logged_in = bool(session.get("admin"))
-    drafts = get_drafts() if logged_in else []
     return render_template_string(
-        PAGE,
-        logged_in=logged_in,
-        drafts=drafts,
+        PAGE, logged_in=logged_in, drafts=get_drafts() if logged_in else [],
         feed_count=len(configured_feeds()),
         publishing=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true",
         error=request.args.get("error"),
@@ -139,6 +105,15 @@ def logout():
 @app.get("/health")
 def health():
     return jsonify(status="ok", service="NayaDrishti AI")
+
+
+@app.get("/draft-image/<item_id>")
+@login_required
+def draft_image(item_id):
+    data = get_draft_image(item_id)
+    if not data:
+        return "Image not found.", 404
+    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.post("/run-check")
