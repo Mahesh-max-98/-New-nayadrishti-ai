@@ -45,11 +45,59 @@ def _google_news_results(title):
     return results
 
 
+def _commons_image_candidates(title):
+    """Find openly licensed visual-reference images on Wikimedia Commons."""
+    params = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": title[:180],
+        "gsrnamespace": 6,
+        "gsrlimit": 5,
+        "prop": "imageinfo",
+        "iiprop": "url|extmetadata",
+        "iiurlwidth": 640,
+        "format": "json",
+    }
+    response = requests.get(
+        "https://commons.wikimedia.org/w/api.php",
+        params=params,
+        headers={"User-Agent": "NayaDrishtiAI/1.0 (news visual research)"},
+        timeout=(8, 20),
+    )
+    response.raise_for_status()
+    pages = (response.json().get("query") or {}).get("pages") or {}
+    candidates = []
+    for page in pages.values():
+        info_list = page.get("imageinfo") or []
+        if not info_list:
+            continue
+        info = info_list[0]
+        metadata = info.get("extmetadata") or {}
+        license_name = _clean(
+            (metadata.get("LicenseShortName") or {}).get("value")
+            or (metadata.get("UsageTerms") or {}).get("value"),
+            100,
+        )
+        image_url = info.get("thumburl") or info.get("url") or ""
+        if not image_url.startswith("https://") or not license_name:
+            continue
+        candidates.append({
+            "title": _clean(page.get("title"), 180),
+            "image_url": image_url,
+            "context_url": "https://commons.wikimedia.org/wiki/" + page.get("title", "").replace(" ", "_"),
+            "source": "Wikimedia Commons",
+            "license": license_name,
+        })
+    return candidates
+
+
 def _google_image_candidates(title):
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     engine_id = os.getenv("GOOGLE_CSE_ID", "").strip()
     if not api_key or not engine_id:
-        return []
+        # Google Custom Search JSON API is not open to new customers.
+        # Use Commons as a no-key, licence-labelled visual-reference fallback.
+        return _commons_image_candidates(title)
 
     # Search results are used only as visual-reference candidates. The app
     # does not republish these images. A rights filter narrows the search,
@@ -82,6 +130,7 @@ def _google_image_candidates(title):
             "image_url": image_url,
             "context_url": (image_meta.get("contextLink") or "")[:500],
             "source": _clean(item.get("displayLink"), 100),
+            "license": "Google usage-rights-filtered result; verify source terms",
         })
     return candidates
 
@@ -92,7 +141,7 @@ def _inspect_reference_image(title, candidate):
         return ""
     model = os.getenv(
         "GROQ_VISION_MODEL",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3.8-27b",
     ).strip()
 
     # Ask a vision model to identify only visible objects and sport category.
