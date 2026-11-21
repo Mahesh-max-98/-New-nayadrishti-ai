@@ -1,7 +1,6 @@
 import base64
 import io
 import os
-import textwrap
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -11,7 +10,7 @@ API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 
 
 def _brand_image(image_bytes):
-    """Add a simple English wordmark and tagline without altering the news scene."""
+    """Add the NayaDrishti wordmark and tagline without covering the news scene."""
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     draw = ImageDraw.Draw(image)
     width, height = image.size
@@ -37,7 +36,8 @@ def _brand_image(image_bytes):
     return output.getvalue()
 
 
-def generate_news_image(title, description=""):
+def generate_news_image(title, description="", summary=""):
+    """Generate an editorial image grounded in the exact post for this story."""
     account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
     if not account_id or not api_token:
@@ -45,15 +45,33 @@ def generate_news_image(title, description=""):
             "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not configured."
         )
 
-    context = " ".join((title or "", description or ""))[:900]
+    # Prefer the AI-edited post: it is the same factual content shown to readers.
+    # RSS descriptions can contain unrelated site boilerplate or recommendations.
+    story_context = summary.strip() or description.strip()
+    context = (
+        f"Original news headline: {title.strip()}\n"
+        f"News facts and summary: {story_context}"
+    )[:1400]
+
     prompt = (
-        "Create a polished editorial illustration for a Nepal-focused digital news page. "
-        "The scene should visually represent this news topic: " + context + ". "
-        "Use a modern, professional, bold newsroom graphic style, clear focal subject, "
-        "balanced composition, realistic lighting, and no written words, letters, logos, "
-        "watermarks, fake screenshots, or fabricated identifiable people. "
-        "This must look like an illustrative editorial graphic, not documentary evidence."
-    )[:2048]
+        "Create ONE accurate editorial illustration for a professional digital news post. "
+        "The illustration MUST match the specific news story described below. "
+        "First identify the main subject, action, location or setting, and topic from the "
+        "headline and summary. Show that subject and action clearly. Do not substitute a "
+        "generic news scene or introduce a different sport, country, team, event, object, "
+        "or topic. If the story is about a named sports team or match, depict the correct "
+        "sport and a relevant match/stadium scene; do not invent player likenesses or logos. "
+        "If it is about education, show a relevant school, classroom, exam, or students scene. "
+        "If it is about government or public affairs, use a relevant neutral institutional "
+        "or symbolic scene and do not invent real people. For other topics, depict the "
+        "specific subject described. If details are insufficient, make a restrained "
+        "topic-specific symbolic illustration rather than guessing. "
+        "Use a polished, bold, modern editorial illustration style, clear focal subject, "
+        "balanced composition, and realistic lighting. No text, letters, numbers, logos, "
+        "watermarks, fake screenshots, or fabricated identifiable people. This is an "
+        "illustration, not documentary evidence.\n"
+        f"STORY TO ILLUSTRATE:\n{context}"
+    )[:3000]
 
     url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
     response = requests.post(
