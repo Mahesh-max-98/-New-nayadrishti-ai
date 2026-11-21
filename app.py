@@ -82,7 +82,13 @@ try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'applicati
 if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);b.disabled=false;b.textContent='Run a feed check';return;}
 const poll=async()=>{try{const s=await fetch('/run-check',{headers:{'Accept':'application/json'}});const state=await s.json();
 if(state.running){out.textContent='Still checking feeds and generating images...';setTimeout(poll,2500);return;}
-if(state.finished){out.textContent=state.error||JSON.stringify(state.result,null,2);b.disabled=false;b.textContent='Run a feed check';setTimeout(()=>location.reload(),1500);return;}
+if(state.finished){
+const x=state.result||{};
+if(state.error){out.textContent='Feed check failed: '+state.error;}
+else if(x.errors&&x.errors.length){out.textContent='Feed check finished. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nAlready seen: '+x.already_seen+'\\nErrors:\\n- '+x.errors.join('\\n- ');}
+else if(x.new_items===0){out.textContent='Feed check finished, but no new unseen stories were found. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nAlready seen: '+x.already_seen+'. Try again later when a source publishes a new item.';}
+else{out.textContent='Feed check complete!\\nFeeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nPublisher photos: '+x.publisher_photos_used+'\\nFacebook published: '+x.published;}
+b.disabled=false;b.textContent='Run a feed check';setTimeout(()=>location.reload(),2500);return;}
 out.textContent='Waiting for feed check status...';setTimeout(poll,2500);
 }catch(e){out.textContent='Could not read check status: '+e.message;b.disabled=false;b.textContent='Run a feed check';}};poll();
 }catch(e){out.textContent='Request failed: '+e.message;b.disabled=false;b.textContent='Run a feed check';}}
