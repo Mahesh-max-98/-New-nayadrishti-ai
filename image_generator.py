@@ -142,6 +142,9 @@ def _visual_direction(title, description, summary, visual_brief=""):
     """Rank story topics using headline-first signals to avoid broad keyword mistakes."""
     headline = re.sub(r"\s+", " ", title or "").lower()
     details = re.sub(r"\s+", " ", " ".join((description or "", summary or "", visual_brief or ""))).lower()
+    # Normalize typographic hyphens commonly used in player names.
+    headline = re.sub(r"[\u2010-\u2015\u2212]", "-", headline)
+    details = re.sub(r"[\u2010-\u2015\u2212]", "-", details)
 
     # Headline matches matter most. Supporting text can clarify a story, but
     # generic words such as "result", "team", or "news" must not decide the image.
@@ -149,7 +152,9 @@ def _visual_direction(title, description, summary, visual_brief=""):
         ("cricket", [
             "cricket", "ipl", "t20", "odi", "test match", "wicket", "batsman",
             "batter", "bowler", " रन", "क्रिकेट", "विकेट", "ब्याट्सम्यान",
-            "बलर", "रन बनाए", "क्रिकेटर",
+            "बलर", "रन बनाए", "क्रिकेटर", "imam-ul-haq", "imam ul haq",
+            "pakistan opener", "pakistani opener", "county cricket",
+            "headingley cricket", "yorkshire cricket",
         ], "A recognisable cricket scene: cricket pitch, stumps, bat and ball, with players only if the report concerns a match or players. For administration, selection, finance or scheduling stories, show the relevant cricket context without inventing match action."),
         ("football", [
             "football", "soccer", "premier league", "champions league",
@@ -234,10 +239,10 @@ def _visual_direction(title, description, summary, visual_brief=""):
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a compact, fact-prioritised prompt for a clearly labelled news reconstruction."""
-    headline = re.sub(r"\\s+", " ", (title or "").strip())[:260]
-    facts = re.sub(r"\\s+", " ", (description or "").strip())[:520]
-    post = re.sub(r"\\s+", " ", (summary or "").strip())[:260]
-    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:320]
+    headline = re.sub(r"\s+", " ", (title or "").strip())[:260]
+    facts = re.sub(r"\s+", " ", (description or "").strip())[:520]
+    post = re.sub(r"\s+", " ", (summary or "").strip())[:260]
+    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:320]
     direction = _visual_direction(headline, facts, post, brief)
 
     # Put story facts before photographic styling. The 2,048-character API limit
@@ -260,8 +265,11 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
         "SCENE: one clear main subject, correct object type and scale, physically "
         "plausible arrangement, accurate sport/equipment/infrastructure when relevant, "
         "natural background details that do not imply unreported facts. Match the "
-        "visual category to the event, not merely a broad keyword. No unrelated "
-        "props, no food or tea, no mixed sports, no collage, no split-screen. "
+        "visual category to the event, not merely a broad keyword. For cricket, "
+        "show cricket-only equipment such as bat, ball, stumps and a cricket pitch; "
+        "never show hockey sticks, pucks, ice rinks or hockey goals. For hockey, do "
+        "not show cricket bats, wickets or cricket pitches. No unrelated props, no "
+        "food or tea, no mixed sports, no collage, no split-screen. "
         "PHOTO REALISM: professional documentary-editorial photography aesthetic; "
         "natural available light, realistic exposure and white balance, physically "
         "consistent shadows, true-to-life materials and textures, subtle fine grain, "
