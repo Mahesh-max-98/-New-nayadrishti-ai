@@ -10,7 +10,7 @@ MODEL = "@cf/black-forest-labs/flux-1-schnell"
 API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 
 
-def _compose_news_card(image, title, summary):
+def _compose_news_card(image, title, summary, ai_generated=False):
     """Create a consistent NayaDrishti card with a readable headline."""
     image = image.convert("RGB")
     width, height = image.size
@@ -35,25 +35,26 @@ def _compose_news_card(image, title, summary):
     image = Image.alpha_composite(image.convert("RGBA"), overlay)
     draw = ImageDraw.Draw(image)
 
-    # Generated visuals should look photographic but must never be mistaken
-    # for genuine on-scene press photography.
-    label = "AI-GENERATED VISUAL"
-    label_font = ImageFont.load_default()
-    label_box = draw.textbbox((0, 0), label, font=label_font)
-    label_width = label_box[2] - label_box[0]
-    label_height = label_box[3] - label_box[1]
-    badge_padding_x, badge_padding_y = 14, 10
-    badge_right, badge_top = 1200 - 36, 28
-    badge_left = badge_right - label_width - badge_padding_x * 2
-    badge_bottom = badge_top + label_height + badge_padding_y * 2
-    draw.rounded_rectangle(
-        (badge_left, badge_top, badge_right, badge_bottom),
-        radius=10, fill=(8, 15, 32, 205)
-    )
-    draw.text(
-        (badge_left + badge_padding_x, badge_top + badge_padding_y - 1),
-        label, font=label_font, fill=(255, 255, 255, 255)
-    )
+    # Only AI-created scenes receive this label. Original publisher photos
+    # must not be mislabeled as AI-generated.
+    if ai_generated:
+        label = "AI-GENERATED VISUAL"
+        label_font = ImageFont.load_default()
+        label_box = draw.textbbox((0, 0), label, font=label_font)
+        label_width = label_box[2] - label_box[0]
+        label_height = label_box[3] - label_box[1]
+        badge_padding_x, badge_padding_y = 14, 10
+        badge_right, badge_top = 1200 - 36, 28
+        badge_left = badge_right - label_width - badge_padding_x * 2
+        badge_bottom = badge_top + label_height + badge_padding_y * 2
+        draw.rounded_rectangle(
+            (badge_left, badge_top, badge_right, badge_bottom),
+            radius=10, fill=(8, 15, 32, 205)
+        )
+        draw.text(
+            (badge_left + badge_padding_x, badge_top + badge_padding_y - 1),
+            label, font=label_font, fill=(255, 255, 255, 255)
+        )
 
     font_candidates = [
         os.getenv("NEWS_FONT_PATH", ""),
@@ -123,7 +124,7 @@ def create_publisher_news_card(image_bytes, title, summary=""):
         raise ValueError("Publisher image is too small for a news card.")
     lines = [line.strip() for line in (summary or "").splitlines() if line.strip()]
     headline = lines[2] if len(lines) >= 3 else title
-    return _compose_news_card(photo, headline, summary)
+    return _compose_news_card(photo, headline, summary, ai_generated=False)
 
 
 def _visual_direction(title, description, summary, visual_brief=""):
@@ -231,27 +232,36 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     # Cloudflare FLUX accepts at most 2,048 characters. Keep the headline and
     # story-specific direction first so truncation never removes the main subject.
     prompt = (
-        "Create a highly photorealistic documentary-style editorial news visual "
-        "for this exact story, like a carefully composed photograph from a "
-        "professional photojournalist. Use natural available light, realistic "
-        "camera optics, true-to-life colors, authentic material textures, subtle "
-        "imperfections, believable depth, realistic shadows and physically "
-        "accurate details. The scene must feel candid and grounded, not staged. "
-        "Avoid every synthetic-AI look: no CGI, 3D render, illustration, painting, "
-        "plastic skin, waxy faces, overly smooth surfaces, oversharpening, "
-        "oversaturated colors, fantasy lighting, glowing effects or impossible "
-        "geometry. One coherent landscape 4:3 scene, not a collage. "
-        "Represent only details supported by the report. Do not fabricate a "
-        "specific real moment, identifiable person's face, team or company logo, "
-        "score, date, place, damage, casualty, crowd, quote, sign or text. "
-        "If exact scene details are uncertain, create a realistic symbolic "
-        "editorial visual rather than pretending to show the actual event. "
-        "No words, letters, numbers, watermarks, fake screenshots, food or tea. "
-        "STORY DIRECTION: " + direction[:500] + " "
-        "HEADLINE: " + headline[:220] + " "
-        "VISUAL BRIEF: " + brief[:280] + " "
-        "FACTS: " + facts[:350] + " "
-        "POST CONTEXT: " + post[:180]
+        "Create a premium, highly realistic PHOTOREALISTIC EDITORIAL RECONSTRUCTION "
+        "for a news graphic, with the visual quality of a professional full-frame "
+        "camera photograph. This is an illustrative reconstruction, NOT evidence "
+        "and NOT a photograph of the actual event. Accuracy is more important than "
+        "drama. First identify the single central subject and the exact action "
+        "stated in the headline; use the description only to clarify it. Build one "
+        "clear, believable scene around that subject. Preserve real-world scale, "
+        "anatomy, object shape, materials, geography and cause-and-effect. Use "
+        "natural daylight or plausible indoor lighting, physically correct "
+        "shadows, realistic lens perspective, restrained depth of field, subtle "
+        "sensor grain, natural color, fine texture and documentary composition. "
+        "Avoid glossy CGI, 3D-render appearance, painting, cartoon style, waxy "
+        "surfaces, plastic skin, malformed hands, duplicated objects, impossible "
+        "geometry, fake logos, dramatic fantasy lighting and excessive saturation. "
+        "Never invent a named person, recognizable face, exact location, uniform, "
+        "team, company, flag, score, result, quote, sign, number, casualty, injury, "
+        "damage, crowd or action not explicitly supported by the report. Never "
+        "make an allegation look proven or imply that a person caused an event. "
+        "For politics, crime, health, disasters or disputed claims, use a neutral "
+        "contextual still-life or wide environmental scene with no identifiable "
+        "people and no sensational details. If the facts do not establish the "
+        "actual scene, do NOT pretend to depict it; create a restrained symbolic "
+        "visual of the confirmed subject instead. One coherent 4:3 landscape "
+        "composition, clear subject, uncluttered background, no collage, no text, "
+        "letters, numbers, watermark, fake screenshot, food or tea. "
+        "STORY DIRECTION: " + direction[:420] + " "
+        "HEADLINE: " + headline[:200] + " "
+        "VISUAL BRIEF: " + brief[:220] + " "
+        "SOURCE FACTS: " + facts[:300] + " "
+        "POST CONTEXT: " + post[:150]
     )
     return prompt[:2048]
 
@@ -289,6 +299,6 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
         image = Image.open(io.BytesIO(raw))
         lines = [line.strip() for line in (summary or "").splitlines() if line.strip()]
         headline = lines[2] if len(lines) >= 3 else title
-        return _compose_news_card(image, headline, summary)
+        return _compose_news_card(image, headline, summary, ai_generated=True)
     except Exception as exc:
         raise RuntimeError("Could not decode or brand the generated image.") from exc
