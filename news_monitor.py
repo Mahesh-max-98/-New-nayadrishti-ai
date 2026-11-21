@@ -46,11 +46,9 @@ def configured_feeds():
 
 
 def clean_text(value, max_length=5000):
-    value = re.sub(r"\s+", " ", value).strip()[:max_length]
+    value = re.sub(r"<[^>]+>", " ", value or "")
     value = html.unescape(value)
-    return re.sub(r"\\s+", " ", value).strip()[:max_length]
-
-
+    return re.sub(r"\s+", " ", value).strip()[:max_length]
 def fetch_feed(url):
     response = requests.get(
         url,
