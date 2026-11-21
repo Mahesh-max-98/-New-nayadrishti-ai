@@ -56,6 +56,24 @@ DASHBOARD_HTML = """
             padding: 20px;
             border-radius: 10px;
         }
+        button {
+            background: #1d4ed8;
+            color: white;
+            border: 0;
+            border-radius: 8px;
+            padding: 12px 18px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        button:disabled { opacity: 0.6; cursor: wait; }
+        #check-result {
+            background: white;
+            padding: 14px;
+            border-radius: 10px;
+            margin: 14px 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
     </style>
 </head>
 <body>
@@ -65,6 +83,10 @@ DASHBOARD_HTML = """
         <p>नयाँ दृष्टि, नयाँ खबर।</p>
         <p>News Draft Dashboard</p>
     </header>
+
+    <h2>Feed Controls</h2>
+    <button id="run-check-button" type="button" onclick="runFeedCheck()">Run a feed check</button>
+    <div id="check-result" aria-live="polite">Press the button to check your configured news feeds.</div>
 
     <h2>Generated News Drafts</h2>
     <p>Total drafts: {{ drafts|length }}</p>
@@ -88,6 +110,28 @@ DASHBOARD_HTML = """
         </div>
     {% endif %}
 </div>
+<script>
+async function runFeedCheck() {
+    const button = document.getElementById("run-check-button");
+    const result = document.getElementById("check-result");
+    button.disabled = true;
+    button.textContent = "Checking feeds...";
+    result.textContent = "Please wait while NayaDrishti checks the configured feeds.";
+    try {
+        const response = await fetch("/run-check", { method: "GET" });
+        const data = await response.json();
+        result.textContent = JSON.stringify(data, null, 2);
+        if (!response.ok) {
+            result.textContent = "Feed check failed (" + response.status + "):\\n" + JSON.stringify(data, null, 2);
+        }
+    } catch (error) {
+        result.textContent = "Could not complete the feed check: " + error.message;
+    } finally {
+        button.disabled = false;
+        button.textContent = "Run a feed check";
+    }
+}
+</script>
 </body>
 </html>
 """
