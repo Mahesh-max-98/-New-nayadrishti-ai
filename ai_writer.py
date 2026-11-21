@@ -2,54 +2,75 @@
 import os
 import requests
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/"
+    "models/gemini-3.1-flash-lite:generateContent"
+)
+
 
 def write_summary(title, description, source_name, article_url):
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY is not configured.")
+    api_key = os.getenv("GEMINI_API_KEY")
 
-    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
 
     prompt = f"""
-Write a short, accurate NayaDrishti news post.
-Use only the supplied facts. Do not invent information.
-Use clear Nepali or English.
-Include a headline and source attribution.
+You are a careful bilingual news editor for NayaDrishti.
+
+Write a short, accurate news post in clear Nepali or English.
+Use only the supplied facts. Never invent details.
+Include a clear headline and source attribution.
+Keep the post concise and suitable for social media.
 
 Source: {source_name}
 Title: {title}
 Description: {description}
-Link: {article_url}
+Article link: {article_url}
 
-Return only the news post.
+Return only the finished news post.
 """
 
     response = requests.post(
-        GROQ_URL,
+        GEMINI_URL,
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "x-goog-api-key": api_key,
             "Content-Type": "application/json"
         },
         json={
-            "model": model,
-            "temperature": 0.2,
-            "messages": [
+            "contents": [
                 {
-                    "role": "system",
-                    "content": "You are a careful bilingual news editor."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
+                    "parts": [
+                        {"text": prompt}
+                    ]
                 }
-            ]
+            ],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 500
+            }
         },
         timeout=45
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"Gemini API error {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+
     data = response.json()
 
-    return data["choices"][0]["message"]["content"].strip()
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("Gemini returned no generated response.")
+
+    parts = candidates[0].get("content", {}).get("parts", [])
+    result = "\n".join(
+        part.get("text", "") for part in parts
+    ).strip()
+
+    if not result:
+        raise RuntimeError("Gemini returned an empty summary.")
+
+    return result
     
