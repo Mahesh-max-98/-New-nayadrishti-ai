@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 import feedparser
 import requests
 
-from ai_writer import write_summary
+from ai_writer import write_summary, write_visual_brief
 from database import already_seen, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
 from image_generator import create_publisher_news_card, generate_news_image
@@ -211,7 +211,25 @@ def check_feeds():
                         image_status = "publisher_photo"
                         result["publisher_photos_used"] += 1
                     else:
-                        image_data = generate_news_image(title, description, summary)
+                        # Ask Groq to identify the exact event and main subject,
+                        # not just the broad topic. If this extra request fails,
+                        # continue with the existing headline/description prompt.
+                        visual_brief = ""
+                        try:
+                            visual_brief = write_visual_brief(
+                                title=title,
+                                description=description,
+                                source_name=source_name,
+                            )
+                        except Exception as brief_exc:
+                            log.warning(
+                                "Visual brief unavailable for %s; using feed context: %s",
+                                source_name,
+                                brief_exc,
+                            )
+                        image_data = generate_news_image(
+                            title, description, summary, visual_brief=visual_brief
+                        )
                         image_status = "ai_illustration"
                         result["ai_illustrations_used"] += 1
                 except Exception as image_exc:
