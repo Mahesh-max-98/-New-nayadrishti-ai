@@ -35,6 +35,26 @@ def _compose_news_card(image, title, summary):
     image = Image.alpha_composite(image.convert("RGBA"), overlay)
     draw = ImageDraw.Draw(image)
 
+    # Generated visuals should look photographic but must never be mistaken
+    # for genuine on-scene press photography.
+    label = "AI-GENERATED VISUAL"
+    label_font = ImageFont.load_default()
+    label_box = draw.textbbox((0, 0), label, font=label_font)
+    label_width = label_box[2] - label_box[0]
+    label_height = label_box[3] - label_box[1]
+    badge_padding_x, badge_padding_y = 14, 10
+    badge_right, badge_top = 1200 - 36, 28
+    badge_left = badge_right - label_width - badge_padding_x * 2
+    badge_bottom = badge_top + label_height + badge_padding_y * 2
+    draw.rounded_rectangle(
+        (badge_left, badge_top, badge_right, badge_bottom),
+        radius=10, fill=(8, 15, 32, 205)
+    )
+    draw.text(
+        (badge_left + badge_padding_x, badge_top + badge_padding_y - 1),
+        label, font=label_font, fill=(255, 255, 255, 255)
+    )
+
     font_candidates = [
         os.getenv("NEWS_FONT_PATH", ""),
         "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf",
@@ -211,17 +231,27 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     # Cloudflare FLUX accepts at most 2,048 characters. Keep the headline and
     # story-specific direction first so truncation never removes the main subject.
     prompt = (
-        "Create one polished editorial illustration for this exact news story. "
-        "One clear subject, one coherent landscape 4:3 scene; no collage. "
-        "Illustrate the reported event type accurately; do not invent people, faces, "
-        "teams, logos, scores, dates, places, damage, crowds, text or events. "
+        "Create a highly photorealistic documentary-style editorial news visual "
+        "for this exact story, like a carefully composed photograph from a "
+        "professional photojournalist. Use natural available light, realistic "
+        "camera optics, true-to-life colors, authentic material textures, subtle "
+        "imperfections, believable depth, realistic shadows and physically "
+        "accurate details. The scene must feel candid and grounded, not staged. "
+        "Avoid every synthetic-AI look: no CGI, 3D render, illustration, painting, "
+        "plastic skin, waxy faces, overly smooth surfaces, oversharpening, "
+        "oversaturated colors, fantasy lighting, glowing effects or impossible "
+        "geometry. One coherent landscape 4:3 scene, not a collage. "
+        "Represent only details supported by the report. Do not fabricate a "
+        "specific real moment, identifiable person's face, team or company logo, "
+        "score, date, place, damage, casualty, crowd, quote, sign or text. "
+        "If exact scene details are uncertain, create a realistic symbolic "
+        "editorial visual rather than pretending to show the actual event. "
         "No words, letters, numbers, watermarks, fake screenshots, food or tea. "
-        "Use a neutral symbolic scene if details are uncertain. "
-        "STORY DIRECTION: " + direction[:650] + " "
-        "HEADLINE: " + headline[:240] + " "
-        "VISUAL BRIEF: " + brief[:350] + " "
-        "FACTS: " + facts[:450] + " "
-        "POST CONTEXT: " + post[:250]
+        "STORY DIRECTION: " + direction[:500] + " "
+        "HEADLINE: " + headline[:220] + " "
+        "VISUAL BRIEF: " + brief[:280] + " "
+        "FACTS: " + facts[:350] + " "
+        "POST CONTEXT: " + post[:180]
     )
     return prompt[:2048]
 
