@@ -1,146 +1,139 @@
-
 import os
-from flask import Flask, jsonify, render_template_string
+from functools import wraps
+
+from flask import (
+    Flask, jsonify, redirect, render_template_string,
+    request, session, url_for
+)
+
 from database import init_db, get_drafts
-from news_monitor import check_feeds
+from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-before-deployment")
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "true").lower() == "true",
+)
 init_db()
 
-DASHBOARD_HTML = """
-<!DOCTYPE html>
-<html>
+PAGE = """
+<!doctype html>
+<html lang="en">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>NayaDrishti AI Dashboard</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f3f4f6;
-            color: #222;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 800px;
-            margin: auto;
-        }
-        header {
-            background: #172554;
-            color: white;
-            padding: 22px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-        .draft {
-            background: white;
-            padding: 18px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 8px #00000010;
-        }
-        .draft h2 {
-            font-size: 19px;
-            margin-top: 0;
-        }
-        .meta {
-            color: #666;
-            font-size: 13px;
-        }
-        a {
-            color: #1d4ed8;
-            overflow-wrap: anywhere;
-        }
-        .empty {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-        }
-        button {
-            background: #1d4ed8;
-            color: white;
-            border: 0;
-            border-radius: 8px;
-            padding: 12px 18px;
-            font-size: 15px;
-            cursor: pointer;
-        }
-        button:disabled { opacity: 0.6; cursor: wait; }
-        #check-result {
-            background: white;
-            padding: 14px;
-            border-radius: 10px;
-            margin: 14px 0;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NayaDrishti AI</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f9;color:#172033;font-family:Arial,sans-serif}
+.wrap{max-width:920px;margin:auto;padding:18px}
+header{background:#172554;color:#fff;padding:24px;border-radius:16px;margin:8px 0 18px}
+h1{margin:0 0 6px;font-size:27px}header p{margin:4px 0;color:#dbeafe}
+.panel,.draft{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin:14px 0}
+button,.btn{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;font-size:15px}
+button:disabled{opacity:.55}input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0 14px;font-size:16px}
+.small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
+.draft h3{margin:0 0 8px}.draft p{white-space:pre-wrap;line-height:1.55}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
+</style>
 </head>
-<body>
-<div class="container">
-    <header>
-        <h1>NayaDrishti AI</h1>
-        <p>नयाँ दृष्टि, नयाँ खबर।</p>
-        <p>News Draft Dashboard</p>
-    </header>
-
-    <h2>Feed Controls</h2>
-    <button id="run-check-button" type="button" onclick="runFeedCheck()">Run a feed check</button>
-    <div id="check-result" aria-live="polite">Press the button to check your configured news feeds.</div>
-
-    <h2>Generated News Drafts</h2>
-    <p>Total drafts: {{ drafts|length }}</p>
-
-    {% if drafts %}
-        {% for draft in drafts %}
-        <div class="draft">
-            <h2>{{ draft.title }}</h2>
-            <p class="meta">
-                Source: {{ draft.source or "Unknown" }}
-            </p>
-            <p>{{ draft.summary }}</p>
-            <p class="meta">Created: {{ draft.created_at }}</p>
-            <p><a href="{{ draft.url }}" target="_blank"
-                  rel="noopener noreferrer">Read original article</a></p>
-        </div>
-        {% endfor %}
-    {% else %}
-        <div class="empty">
-            No drafts yet. New generated news summaries will appear here.
-        </div>
-    {% endif %}
-</div>
+<body><main class="wrap">
+<header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
+{% if not logged_in %}
+<section class="panel">
+<h2>Admin sign in</h2>
+<p class="small">Sign in to check feeds and view generated drafts.</p>
+<form method="post" action="/login">
+<label for="password">Admin password</label>
+<input id="password" name="password" type="password" required autocomplete="current-password">
+<button type="submit">Sign in</button>
+</form>
+{% if error %}<p class="danger">{{ error }}</p>{% endif %}
+</section>
+{% else %}
+<section class="panel">
+<div class="top"><h2>Feed controls</h2><form method="post" action="/logout"><button type="submit">Log out</button></form></div>
+<p>Configured feeds: <strong>{{ feed_count }}</strong></p>
+<p class="small">A check reads the newest entry from each configured RSS/Atom feed. Only new entries are summarized.</p>
+<button id="check" onclick="runCheck()">Run a feed check</button>
+<div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div>
+</section>
+<section class="panel">
+<h2>Publishing status</h2>
+<p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
+<p class="small">Keep this OFF until you have checked several drafts for accuracy and verified your Page token.</p>
+</section>
+<section>
+<div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
+{% for d in drafts %}
+<article class="draft">
+<h3>{{ d.title }}</h3><div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
+<p>{{ d.summary }}</p>
+<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a>
+</article>
+{% else %}
+<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render's NEWS_FEEDS setting, then run a feed check.</div>
+{% endfor %}
+</section>
+{% endif %}
+</main>
+{% if logged_in %}
 <script>
-async function runFeedCheck() {
-    const button = document.getElementById("run-check-button");
-    const result = document.getElementById("check-result");
-    button.disabled = true;
-    button.textContent = "Checking feeds...";
-    result.textContent = "Please wait while NayaDrishti checks the configured feeds.";
-    try {
-        const response = await fetch("/run-check", { method: "GET" });
-        const data = await response.json();
-        result.textContent = JSON.stringify(data, null, 2);
-        if (!response.ok) {
-            result.textContent = "Feed check failed (" + response.status + "):\\n" + JSON.stringify(data, null, 2);
-        }
-    } catch (error) {
-        result.textContent = "Could not complete the feed check: " + error.message;
-    } finally {
-        button.disabled = false;
-        button.textContent = "Run a feed check";
-    }
+async function runCheck(){
+ const b=document.getElementById('check'), out=document.getElementById('result');
+ b.disabled=true;b.textContent='Checking...';out.textContent='Checking configured feeds. Please wait.';
+ try{
+  const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
+  const data=await r.json();
+  out.textContent=JSON.stringify(data,null,2);
+ }catch(e){out.textContent='Request failed: '+e.message;}
+ finally{b.disabled=false;b.textContent='Run a feed check';}
 }
 </script>
-</body>
-</html>
+{% endif %}
+</body></html>
 """
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("admin"):
+            return jsonify(error="Please sign in first."), 401
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 @app.get("/")
 def home():
-    drafts = get_drafts()
-    return render_template_string(DASHBOARD_HTML, drafts=drafts)
+    logged_in = bool(session.get("admin"))
+    drafts = get_drafts() if logged_in else []
+    return render_template_string(
+        PAGE,
+        logged_in=logged_in,
+        drafts=drafts,
+        feed_count=len(configured_feeds()),
+        publishing=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true",
+        error=request.args.get("error"),
+    )
+
+
+@app.post("/login")
+def login():
+    expected = os.getenv("ADMIN_PASSWORD")
+    if not expected:
+        return "ADMIN_PASSWORD is not configured in the hosting dashboard.", 503
+    if request.form.get("password", "") != expected:
+        return redirect(url_for("home", error="Incorrect password."))
+    session.clear()
+    session["admin"] = True
+    return redirect(url_for("home"))
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("home"))
 
 
 @app.get("/health")
@@ -148,23 +141,15 @@ def health():
     return jsonify(status="ok", service="NayaDrishti AI")
 
 
-@app.get("/run-check")
+@app.post("/run-check")
+@login_required
 def run_check():
-    expected = os.getenv("ADMIN_SECRET")
-    supplied = os.getenv("FLASK_REQUEST_SECRET")
-
-    if expected and supplied != expected:
-        return jsonify(
-            error="Set FLASK_REQUEST_SECRET to ADMIN_SECRET before using this endpoint."
-        ), 403
-
-    result = check_feeds()
-    return jsonify(result)
+    try:
+        return jsonify(check_feeds())
+    except Exception as exc:
+        app.logger.exception("Manual feed check failed")
+        return jsonify(error=type(exc).__name__, message=str(exc)[:300]), 500
 
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "10000"))
-    )
-    
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
