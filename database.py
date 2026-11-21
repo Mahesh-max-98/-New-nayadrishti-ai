@@ -97,3 +97,13 @@ def get_drafts(limit=50):
 
         return [dict(row) for row in rows]
         
+
+
+
+def set_draft_status(item_id, status):
+    """Update a saved draft after its publication status is known."""
+    with connection() as db:
+        db.execute(
+            "UPDATE drafts SET status=%s WHERE item_id=%s",
+            (status, item_id),
+        )
