@@ -57,6 +57,18 @@ def already_seen(item_id):
         ).fetchone() is not None
 
 
+def already_seen_title(title):
+    """Avoid duplicate headlines repeated across different feeds."""
+    normalized = (title or "").strip()
+    if not normalized:
+        return False
+    with connection() as db:
+        return db.execute(
+            "SELECT 1 FROM seen_items WHERE lower(trim(title))=lower(trim(%s)) LIMIT 1",
+            (normalized,),
+        ).fetchone() is not None
+
+
 def remember(item_id, title, source, url, status="seen"):
     with connection() as db:
         db.execute("""
