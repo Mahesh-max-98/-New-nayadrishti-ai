@@ -13,6 +13,7 @@ from ai_writer import write_summary
 from database import already_seen, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
 from image_generator import create_publisher_news_card, generate_news_image
+from google_research import research_story
 
 log = logging.getLogger("nayadrishti")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -176,6 +177,8 @@ def check_feeds():
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0,
+        "google_news_results": 0, "google_image_candidates": 0,
+        "visual_references_checked": 0,
     }
     if not feeds:
         result["errors"].append("NEWS_FEEDS is empty or invalid. Add RSS/Atom feed URLs in Render.")
@@ -204,6 +207,22 @@ def check_feeds():
                 if not summary:
                     raise ValueError("Groq returned an empty news post.")
 
+                # Research the story before choosing or generating its image.
+                # Google News results provide context; Google Images references
+                # are visually checked when Google CSE credentials are configured.
+                research = {}
+                try:
+                    research = research_story(title, description)
+                    result["google_news_results"] += len(research.get("news_results", []))
+                    result["google_image_candidates"] += int(research.get("image_candidates", 0))
+                    if research.get("visual_reference"):
+                        result["visual_references_checked"] += 1
+                except Exception as research_exc:
+                    log.warning("Story research failed for %s: %s", source_name, research_exc)
+                    result["errors"].append(
+                        f"{source_name} research: {type(research_exc).__name__}: {str(research_exc)[:160]}"
+                    )
+
                 image_data = None
                 image_status = "failed"
                 try:
@@ -214,9 +233,21 @@ def check_feeds():
                         image_status = "publisher_photo"
                         result["publisher_photos_used"] += 1
                     else:
-                        # Avoid a second Groq request for every story. The image
-                        # prompt uses the headline, feed description and generated post.
-                        image_data = generate_news_image(title, description, summary)
+                        # Use research context and the visually checked reference
+                        # only to improve scene/category selection. The reference
+                        # image itself is never downloaded or republished.
+                        research_context = research.get("news_context", "")
+                        visual_reference = research.get("visual_reference", "")
+                        visual_brief = " ".join(
+                            part for part in (
+                                "Research context: " + research_context if research_context else "",
+                                "Visual reference inspection (not evidence): " + visual_reference if visual_reference else "",
+                            ) if part
+                        )
+                        image_data = generate_news_image(
+                            title, description, summary,
+                            visual_brief=visual_brief[:900],
+                        )
                         image_status = "ai_illustration"
                         result["ai_illustrations_used"] += 1
                 except Exception as image_exc:
@@ -264,8 +295,10 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        "Publisher photos are used only when their article and image hosts are explicitly "
-        "allowlisted in PUBLISHER_IMAGE_ALLOWED_DOMAINS. Otherwise a story-specific AI "
-        "illustration is used. Review reuse rights before allowlisting any publisher domain."
+        "Stories are researched with Google News RSS. Google Images visual-reference "
+        "checks require GOOGLE_API_KEY and GOOGLE_CSE_ID plus a working GROQ_VISION_MODEL. "
+        "Search images are reference-only and are never republished. Publisher photos are "
+        "used only when their article and image hosts are explicitly allowlisted in "
+        "PUBLISHER_IMAGE_ALLOWED_DOMAINS; otherwise a labelled AI illustration is used."
     )
     return result
