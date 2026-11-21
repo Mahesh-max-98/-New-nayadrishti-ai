@@ -4,13 +4,13 @@ import logging
 import os
 import re
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode
 
 import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, remember, save_draft, set_draft_status
+from database import already_seen, already_seen_title, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
 from image_generator import create_publisher_news_card, generate_news_image
 from google_research import research_story
@@ -43,6 +43,16 @@ def configured_feeds():
         name, url = name.strip(), url.strip()
         if name and url.startswith(("https://", "http://")):
             feeds.append((name, url))
+    # Add Google News RSS discovery alongside the configured publishers.
+    # Results are discovery leads, not independent verification.
+    google_queries = [
+        ("Google News - Nepal", "Nepal news when:1d", "ne", "NP", "NP:ne"),
+        ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:2d", "en", "NP", "NP:en"),
+        ("Google News - NEB Education", "NEB Nepal exam result education when:7d", "ne", "NP", "NP:ne"),
+    ]
+    for source_name, query, language, country, edition in google_queries:
+        params = urlencode({"q": query, "hl": language, "gl": country, "ceid": edition})
+        feeds.append((source_name, "https://news.google.com/rss/search?" + params))
     return feeds
 
 
@@ -177,7 +187,7 @@ def check_feeds():
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0,
-        "google_news_results": 0, "image_reference_candidates": 0,
+        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 3,
         "visual_references_checked": 0,
     }
     if not feeds:
@@ -198,7 +208,7 @@ def check_feeds():
                 if not title or not link:
                     continue
                 item_id = hashlib.sha256((source_name + "|" + link).encode("utf-8")).hexdigest()
-                if already_seen(item_id):
+                if already_seen(item_id) or already_seen_title(title):
                     result["already_seen"] += 1
                     continue
 
@@ -295,7 +305,7 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        "Stories are researched with Google News RSS. Visual references are searched "
+        "Three Google News RSS discovery feeds (general Nepal, Nepal cricket, and NEB/education) run alongside configured publishers. Stories are researched with Google News RSS. Visual references are searched "
         "through Wikimedia Commons by default and checked with Groq vision; existing "
         "Google Custom Search credentials can optionally enable Google Images. Reference "
         "images are never republished. Publisher photos are used only when their article "
