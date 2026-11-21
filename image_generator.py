@@ -106,10 +106,10 @@ def create_publisher_news_card(image_bytes, title, summary=""):
     return _compose_news_card(photo, headline, summary)
 
 
-def _visual_direction(title, description, summary):
+def _visual_direction(title, description, summary, visual_brief=""):
     """Rank story topics using headline-first signals to avoid broad keyword mistakes."""
     headline = re.sub(r"\s+", " ", title or "").lower()
-    details = re.sub(r"\s+", " ", " ".join((description or "", summary or ""))).lower()
+    details = re.sub(r"\s+", " ", " ".join((description or "", summary or "", visual_brief or ""))).lower()
 
     # Headline matches matter most. Supporting text can clarify a story, but
     # generic words such as "result", "team", or "news" must not decide the image.
@@ -200,12 +200,12 @@ def _visual_direction(title, description, summary):
     return direction
 
 
-def _build_image_prompt(title, description, summary):
+def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a headline-led prompt that treats feed text as untrusted facts."""
     headline = re.sub(r"\s+", " ", (title or "").strip())[:250]
     facts = re.sub(r"\s+", " ", (description or "").strip())[:1100]
     post = re.sub(r"\s+", " ", (summary or "").strip())[:450]
-    direction = _visual_direction(headline, facts, post)
+    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:900]\n    direction = _visual_direction(headline, facts, post, brief)
 
     return (
         "Create ONE high-quality editorial illustration for the exact news story below. "
@@ -213,7 +213,7 @@ def _build_image_prompt(title, description, summary):
         "VISUAL PRIORITY: the headline is the primary subject; use the description only "
         "to clarify what happened. Show one clear central subject and one coherent scene. "
         "Do not create a collage or mix unrelated topics. "
-        "STORY-SPECIFIC DIRECTION: " + direction + " "
+        "STORY-SPECIFIC DIRECTION: " + direction + " "\n        "EVENT-LEVEL VISUAL BRIEF (fact-grounded, follow closely): " + brief + " "
         "FACTUAL ACCURACY: depict only details supported by the headline or description. "
         "Do not invent people, faces, public figures, team identities, logos, uniforms, "
         "scores, dates, locations, buildings, damage, crowds, signs, documents or events. "
@@ -231,7 +231,7 @@ def _build_image_prompt(title, description, summary):
         "BILINGUAL POST CONTEXT: " + post
     )[:3800]
 
-def generate_news_image(title, description="", summary=""):
+def generate_news_image(title, description="", summary="", visual_brief=""):
     """Generate a story-specific editorial illustration when no licensed photo is available."""
     account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -240,7 +240,7 @@ def generate_news_image(title, description="", summary=""):
             "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not configured."
         )
 
-    prompt = _build_image_prompt(title, description, summary)
+    prompt = _build_image_prompt(title, description, summary, visual_brief)
     url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
     response = requests.post(
         url,
