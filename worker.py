@@ -1,22 +1,34 @@
 import logging
 import os
+
 from apscheduler.schedulers.blocking import BlockingScheduler
-from news_monitor import check_feeds
+
 from database import init_db
+from news_monitor import check_feeds
 
-logging.basicConfig(level=logging.INFO)
-init_db()
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+log = logging.getLogger("nayadrishti-worker")
 
-def job():
-    logging.info("Starting NayaDrishti feed check")
+
+def scheduled_check():
+    log.info("Starting scheduled NayaDrishti feed check")
     try:
-        logging.info("Result: %s", check_feeds())
+        log.info("Feed check result: %s", check_feeds())
     except Exception:
-        logging.exception("Scheduled check failed")
+        log.exception("Scheduled feed check failed")
+
 
 if __name__ == "__main__":
-    seconds = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
+    init_db()
+    interval = max(60, int(os.getenv("CHECK_INTERVAL_SECONDS", "60")))
     scheduler = BlockingScheduler(timezone="Asia/Kathmandu")
-    scheduler.add_job(job, "interval", seconds=max(60, seconds), max_instances=1, coalesce=True)
-    job()
+    scheduler.add_job(
+        scheduled_check,
+        trigger="interval",
+        seconds=interval,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduled_check()
+    log.info("Worker started; checking every %s seconds", interval)
     scheduler.start()
