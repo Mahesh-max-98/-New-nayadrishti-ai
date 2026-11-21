@@ -1,0 +1,199 @@
+import logging
+import os
+from urllib.parse import urlencode
+
+import feedparser
+import requests
+
+log = logging.getLogger("nayadrishti.google_research")
+GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
+GOOGLE_CSE_URL = "https://www.googleapis.com/customsearch/v1"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+def _clean(value, limit=350):
+    import re
+    import html
+    value = html.unescape(re.sub(r"<[^>]+>", " ", value or ""))
+    return re.sub(r"\s+", " ", value).strip()[:limit]
+
+
+def _google_news_results(title):
+    params = {
+        "q": title[:180],
+        "hl": "en",
+        "gl": "US",
+        "ceid": "US:en",
+    }
+    response = requests.get(
+        GOOGLE_NEWS_RSS + "?" + urlencode(params),
+        headers={"User-Agent": "NayaDrishtiAI/1.0 (news research)"},
+        timeout=(8, 15),
+    )
+    response.raise_for_status()
+    parsed = feedparser.parse(response.content)
+    results = []
+    for entry in parsed.entries[:5]:
+        headline = _clean(entry.get("title"), 220)
+        summary = _clean(entry.get("summary") or entry.get("description"), 350)
+        if headline:
+            results.append({
+                "title": headline,
+                "summary": summary,
+                "link": (entry.get("link") or "")[:500],
+            })
+    return results
+
+
+def _google_image_candidates(title):
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    engine_id = os.getenv("GOOGLE_CSE_ID", "").strip()
+    if not api_key or not engine_id:
+        return []
+
+    # Search results are used only as visual-reference candidates. The app
+    # does not republish these images. A rights filter narrows the search,
+    # but it is not a substitute for checking the original licence.
+    params = {
+        "key": api_key,
+        "cx": engine_id,
+        "q": title[:180],
+        "searchType": "image",
+        "num": 5,
+        "safe": "active",
+        "rights": "cc_publicdomain,cc_attribute,cc_sharealike",
+    }
+    response = requests.get(
+        GOOGLE_CSE_URL,
+        params=params,
+        headers={"User-Agent": "NayaDrishtiAI/1.0 (image reference search)"},
+        timeout=(8, 20),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    candidates = []
+    for item in payload.get("items", [])[:5]:
+        image_url = item.get("link") or ""
+        if not image_url.startswith("https://"):
+            continue
+        image_meta = item.get("image") or {}
+        candidates.append({
+            "title": _clean(item.get("title"), 180),
+            "image_url": image_url,
+            "context_url": (image_meta.get("contextLink") or "")[:500],
+            "source": _clean(item.get("displayLink"), 100),
+        })
+    return candidates
+
+
+def _inspect_reference_image(title, candidate):
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return ""
+    model = os.getenv(
+        "GROQ_VISION_MODEL",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+    ).strip()
+
+    # Ask a vision model to identify only visible objects and sport category.
+    # It must not identify a person or treat the image as proof of the news.
+    prompt = (
+        "Inspect this image only as a visual reference for a news illustration. "
+        "Report the visible sport/category, equipment, setting and obvious mismatch "
+        "risks in at most 3 short sentences. Do not identify any person, infer their "
+        "identity, infer an event/date/result, or treat the image as evidence that "
+        "the news happened. If it appears to be hockey rather than cricket, say so "
+        "clearly. Story headline for matching context only: " + _clean(title, 180)
+    )
+    response = requests.post(
+        GROQ_URL,
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a cautious visual-reference checker. Describe "
+                        "only visible content. Never guess identity or news facts."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": candidate["image_url"]},
+                        },
+                    ],
+                },
+            ],
+            "temperature": 0,
+            "max_completion_tokens": 180,
+        },
+        timeout=35,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            "Groq vision error "
+            + str(response.status_code)
+            + ": "
+            + response.text[:250].replace("\n", " ")
+        )
+    choices = response.json().get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content") or ""
+    if isinstance(content, list):
+        content = " ".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return _clean(str(content), 700)
+
+
+def research_story(title, description=""):
+    """Research a headline with Google News and optionally inspect Google Images."""
+    result = {
+        "news_results": [],
+        "image_candidates": 0,
+        "visual_reference": "",
+        "news_context": "",
+        "research_status": "partial",
+    }
+    try:
+        result["news_results"] = _google_news_results(title)
+    except Exception as exc:
+        log.warning("Google News research unavailable: %s", exc)
+
+    if result["news_results"]:
+        lines = []
+        for item in result["news_results"][:4]:
+            line = "- " + item["title"]
+            if item["summary"]:
+                line += ": " + item["summary"]
+            lines.append(line)
+        result["news_context"] = "Google News search leads (not independent proof): " + " ".join(lines)
+        result["research_status"] = "google_news_found"
+
+    try:
+        candidates = _google_image_candidates(title)
+        result["image_candidates"] = len(candidates)
+        # Inspect one candidate to keep free-tier vision usage low. A visual
+        # search result is a reference only, never a photo to republish.
+        if candidates:
+            result["visual_reference"] = _inspect_reference_image(title, candidates[0])
+            if result["visual_reference"]:
+                result["research_status"] = "news_and_image_reference_checked" if result["news_results"] else "image_reference_checked"
+    except Exception as exc:
+        log.warning("Google image reference check unavailable: %s", exc)
+
+    if not result["news_context"] and description:
+        result["news_context"] = _clean(description, 500)
+    return result
