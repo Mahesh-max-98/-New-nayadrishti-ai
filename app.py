@@ -1,4 +1,5 @@
 import os
+import threading
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for, Response
@@ -14,6 +15,26 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "true").lower() == "true",
 )
 init_db()
+
+# Keep long feed checks out of the HTTP request so Gunicorn does not time out.
+_check_lock = threading.Lock()
+_check_status = {"running": False, "finished": False, "result": None, "error": None}
+
+
+def _run_feed_check_in_background():
+    global _check_status
+    try:
+        result = check_feeds()
+        with _check_lock:
+            _check_status = {"running": False, "finished": True, "result": result, "error": None}
+    except Exception as exc:
+        app.logger.exception("Background feed check failed")
+        with _check_lock:
+            _check_status = {
+                "running": False, "finished": True, "result": None,
+                "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+            }
+
 
 PAGE = """
 <!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -56,10 +77,15 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 </section>{% endif %}</main>
 {% if logged_in %}<script>
 async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
-b.disabled=true;b.textContent='Checking...';out.textContent='Checking feeds and generating images. This may take a little time.';
-try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
-const body=await r.text();let data;try{data=JSON.parse(body);}catch(parseError){out.textContent='Server returned HTML instead of JSON. HTTP '+r.status+' ('+r.statusText+'). Response: '+body.slice(0,700).replace(/\\s+/g,' ');return;}out.textContent=JSON.stringify(data,null,2);if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);return;}if(r.ok)setTimeout(()=>location.reload(),1200);}
-catch(e){out.textContent='Request failed: '+e.message;}finally{b.disabled=false;b.textContent='Run a feed check';}}
+b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News and images are being processed in the background.';
+try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});const data=await r.json();
+if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);b.disabled=false;b.textContent='Run a feed check';return;}
+const poll=async()=>{try{const s=await fetch('/run-check',{headers:{'Accept':'application/json'}});const state=await s.json();
+if(state.running){out.textContent='Still checking feeds and generating images...';setTimeout(poll,2500);return;}
+if(state.finished){out.textContent=state.error||JSON.stringify(state.result,null,2);b.disabled=false;b.textContent='Run a feed check';setTimeout(()=>location.reload(),1500);return;}
+out.textContent='Waiting for feed check status...';setTimeout(poll,2500);
+}catch(e){out.textContent='Could not read check status: '+e.message;b.disabled=false;b.textContent='Run a feed check';}};poll();
+}catch(e){out.textContent='Request failed: '+e.message;b.disabled=false;b.textContent='Run a feed check';}}
 </script>{% endif %}</body></html>
 """
 
@@ -116,14 +142,22 @@ def draft_image(item_id):
     return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
-@app.post("/run-check")
+@app.route("/run-check", methods=["GET", "POST"])
 @login_required
 def run_check():
-    try:
-        return jsonify(check_feeds())
-    except Exception as exc:
-        app.logger.exception("Manual feed check failed")
-        return jsonify(error=type(exc).__name__, message=str(exc)[:300]), 500
+    global _check_status
+    if request.method == "GET":
+        with _check_lock:
+            return jsonify(_check_status)
+
+    with _check_lock:
+        if _check_status["running"]:
+            return jsonify(_check_status), 202
+        _check_status = {"running": True, "finished": False, "result": None, "error": None}
+
+    thread = threading.Thread(target=_run_feed_check_in_background, daemon=True)
+    thread.start()
+    return jsonify(running=True, message="Feed check started in the background."), 202
 
 
 if __name__ == "__main__":
