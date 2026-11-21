@@ -177,7 +177,7 @@ def check_feeds():
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0,
-        "google_news_results": 0, "google_image_candidates": 0,
+        "google_news_results": 0, "image_reference_candidates": 0,
         "visual_references_checked": 0,
     }
     if not feeds:
@@ -214,7 +214,7 @@ def check_feeds():
                 try:
                     research = research_story(title, description)
                     result["google_news_results"] += len(research.get("news_results", []))
-                    result["google_image_candidates"] += int(research.get("image_candidates", 0))
+                    result["image_reference_candidates"] += int(research.get("image_candidates", 0))
                     if research.get("visual_reference"):
                         result["visual_references_checked"] += 1
                 except Exception as research_exc:
@@ -295,10 +295,11 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        "Stories are researched with Google News RSS. Google Images visual-reference "
-        "checks require GOOGLE_API_KEY and GOOGLE_CSE_ID plus a working GROQ_VISION_MODEL. "
-        "Search images are reference-only and are never republished. Publisher photos are "
-        "used only when their article and image hosts are explicitly allowlisted in "
-        "PUBLISHER_IMAGE_ALLOWED_DOMAINS; otherwise a labelled AI illustration is used."
+        "Stories are researched with Google News RSS. Visual references are searched "
+        "through Wikimedia Commons by default and checked with Groq vision; existing "
+        "Google Custom Search credentials can optionally enable Google Images. Reference "
+        "images are never republished. Publisher photos are used only when their article "
+        "and image hosts are explicitly allowlisted; otherwise a labelled AI illustration "
+        "is used."
     )
     return result
