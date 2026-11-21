@@ -8,7 +8,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, remember, save_draft
+from database import already_seen, remember, save_draft, set_draft_status
 from facebook_publisher import publish_text
 
 log = logging.getLogger("nayadrishti")
@@ -111,6 +111,7 @@ def check_feeds():
                 else:
                     status = "draft"
 
+                set_draft_status(item_id, status)
                 remember(item_id, title, source_name, link, status)
                 result["new_items"] += 1
                 break
