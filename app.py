@@ -3,6 +3,7 @@ import threading
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for, Response
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import init_db, get_drafts, get_draft_image
 from news_monitor import check_feeds, configured_feeds
@@ -16,24 +17,74 @@ app.config.update(
 )
 init_db()
 
-# Keep long feed checks out of the HTTP request so Gunicorn does not time out.
+# Keep feed checks out of HTTP requests and prevent scheduled/manual overlap.
 _check_lock = threading.Lock()
+_feed_execution_lock = threading.Lock()
 _check_status = {"running": False, "finished": False, "result": None, "error": None}
 
 
-def _run_feed_check_in_background():
+def _execute_feed_check():
     global _check_status
+    if not _feed_execution_lock.acquire(blocking=False):
+        return
     try:
         result = check_feeds()
         with _check_lock:
             _check_status = {"running": False, "finished": True, "result": result, "error": None}
     except Exception as exc:
-        app.logger.exception("Background feed check failed")
+        app.logger.exception("Feed check failed")
         with _check_lock:
             _check_status = {
                 "running": False, "finished": True, "result": None,
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
             }
+    finally:
+        _feed_execution_lock.release()
+
+
+def _run_feed_check_in_background():
+    _execute_feed_check()
+
+
+def _scheduled_feed_check():
+    global _check_status
+    if not _feed_execution_lock.acquire(blocking=False):
+        app.logger.info("Scheduled feed check skipped: another check is already running.")
+        return
+    with _check_lock:
+        _check_status = {"running": True, "finished": False, "result": None, "error": None}
+    try:
+        result = check_feeds()
+        with _check_lock:
+            _check_status = {"running": False, "finished": True, "result": result, "error": None}
+    except Exception as exc:
+        app.logger.exception("Scheduled feed check failed")
+        with _check_lock:
+            _check_status = {
+                "running": False, "finished": True, "result": None,
+                "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+            }
+    finally:
+        _feed_execution_lock.release()
+
+
+# On Render's free web service this runs only while the service is awake.
+# A continuously running paid worker would be needed for guaranteed 24/7 checks.
+scheduler = BackgroundScheduler(daemon=True)
+if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
+    scheduler.add_job(
+        _scheduled_feed_check,
+        trigger="interval",
+        seconds=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "60"))),
+        id="nayadrishti_news_monitor",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+    app.logger.info("Automatic news monitoring enabled (minimum interval: 60 seconds).")
+else:
+    app.logger.info("Automatic news monitoring is disabled.")
 
 
 PAGE = """
