@@ -148,11 +148,13 @@ def _inspect_reference_image(title, candidate):
     # It must not identify a person or treat the image as proof of the news.
     prompt = (
         "Inspect this image only as a visual reference for a news illustration. "
-        "Report the visible sport/category, equipment, setting and obvious mismatch "
-        "risks in at most 3 short sentences. Do not identify any person, infer their "
-        "identity, infer an event/date/result, or treat the image as evidence that "
-        "the news happened. If it appears to be hockey rather than cricket, say so "
-        "clearly. Story headline for matching context only: " + _clean(title, 180)
+        "Do not identify people or infer news facts. Report the dominant sport "
+        "and visible equipment in this exact format: SPORT: cricket/hockey/football/"
+        "other/unclear; OBJECTS: short list; MATCH: yes/no/unclear. MATCH means "
+        "the image visibly matches the sport named in the headline, not that it "
+        "depicts the reported event or named person. If uncertain, say unclear. "
+        "Never treat the image as evidence that the news happened. Headline: "
+        + _clean(title, 180)
     )
     response = requests.post(
         GROQ_URL,
@@ -237,7 +239,41 @@ def research_story(title, description=""):
         # Inspect one candidate to keep free-tier vision usage low. A visual
         # search result is a reference only, never a photo to republish.
         if candidates:
-            result["visual_reference"] = _inspect_reference_image(title, candidates[0])
+            inspection = _inspect_reference_image(title, candidates[0])
+            lower_title = title.lower().replace("‑", "-").replace("–", "-")
+            expected_sport = ""
+            if any(term in lower_title for term in (
+                "cricket", "imam-ul-haq", "imam ul haq", "pakistan opener",
+                "pakistani opener", "county cricket", "headingley cricket",
+                "yorkshire cricket",
+            )):
+                expected_sport = "cricket"
+            elif any(term in lower_title for term in ("hockey", "field hockey", "ice hockey")):
+                expected_sport = "hockey"
+            elif any(term in lower_title for term in ("football", "soccer", "premier league")):
+                expected_sport = "football"
+
+            inspection_lower = inspection.lower()
+            sport_match = expected_sport and ("sport: " + expected_sport) in inspection_lower
+            explicitly_mismatch = expected_sport and (
+                "match: no" in inspection_lower or "match: unclear" in inspection_lower
+            )
+            if sport_match and not explicitly_mismatch:
+                result["visual_reference"] = (
+                    "Visual reference category checked: " + inspection
+                    + ". Use only the sport equipment/context; do not copy the person or event."
+                )
+            elif expected_sport:
+                result["visual_reference"] = (
+                    "REJECT the candidate visual reference. It did not reliably match "
+                    + expected_sport + ". Generate a neutral " + expected_sport
+                    + "-only scene using the verified news facts; do not imitate the candidate."
+                )
+            elif inspection and "match: yes" in inspection_lower:
+                result["visual_reference"] = (
+                    "Visual reference category checked: " + inspection
+                    + ". Use only generic visual context, never the person or event."
+                )
             if result["visual_reference"]:
                 result["research_status"] = "news_and_image_reference_checked" if result["news_results"] else "image_reference_checked"
     except Exception as exc:
