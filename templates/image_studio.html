@@ -15,24 +15,24 @@ img{display:block;width:100%;height:auto;border-radius:13px;margin-top:16px;back
 nav a{color:var(--cyan);text-decoration:none}footer{font-size:12px;color:#8497b3;padding:10px 0}
 </style></head>
 <body><main>
-<header><div class="brand">NayaDrishti · Creative desk</div><h1>AI Image Studio</h1><p>Turn a real news story into a carefully researched editorial illustration.</p><nav><a href="/">← Back to NayaDrishti dashboard</a></nav></header>
+<header><div class="brand">NayaDrishti · Creative desk</div><h1>AI Image Studio</h1><p>Create a realistic, photo-style AI image from a real news story.</p><nav><a href="/">← Back to NayaDrishti dashboard</a></nav></header>
 <section class="panel">
 <h2>Create a story-matched image</h2>
-<p class="note">Paste the original headline and the article's factual text. More reliable context helps the image match the story. This free community service shares generation jobs with volunteer workers, so submit only public news text. Never paste passwords, tokens, personal or confidential information.</p>
+<p class="note">Paste the original headline and the article's factual text. More reliable context helps the image match the story. The generator uses free-tier AI capacity when available; limits and waiting times can apply. If a community backup is used, the prompt may be shared with volunteer workers. Submit only public news text—never passwords, tokens, personal or confidential information.</p>
 <form id="studioForm">
 <label for="headline">News headline</label><input id="headline" maxlength="300" required placeholder="Paste the genuine news headline">
 <label for="article">Article facts / story text</label><textarea id="article" maxlength="8000" required placeholder="Paste the article text or a factual summary (at least 100 characters)..."></textarea>
 <label for="summary">Optional Nepali post summary</label><textarea id="summary" maxlength="800" style="min-height:85px" placeholder="नेपालीमा छोटो समाचार सारांश (वैकल्पिक)"></textarea>
-<button id="generate" type="submit">Generate editorial illustration</button>
+<button id="generate" type="submit">Generate AI photo</button>
 </form>
-<div id="status" class="status" aria-live="polite">Ready. Image generation uses a community-powered free service when available. Queue times and availability can vary.</div>
+<div id="status" class="status" aria-live="polite">Ready. Free image-generation capacity may have daily limits and queue delays.</div>
 </section>
 <section id="result" class="panel result">
-<h2>Your generated illustration</h2><p class="note">Only an AI-generated illustration that passes visual review is shown here. If the free reviewer is rate-limited or the image does not match the article, generation will fail safely instead of showing a generic placeholder. An AI illustration is not a documentary news photograph.</p>
+<h2>Your AI-generated image</h2><p class="note">This is an AI-generated, photo-style editorial image—not a documentary photograph or proof that the event happened. Automated review may be unavailable, so inspect the subject and background carefully before using it. Do not publish an image that does not accurately match the article.</p>
 <img id="preview" alt="AI-generated editorial illustration">
 <a id="download" class="download" download="nayadrishti-editorial-illustration.jpg">Download image</a>
 </section>
-<footer>Free community GPU availability is not guaranteed. No paid provider is used by this studio. Generated images are not automatically published to Facebook.</footer>
+<footer>Free-tier capacity is limited and not unlimited. Generated images are never automatically published to Facebook.</footer>
 </main>
 <script>
 const form=document.getElementById('studioForm'),button=document.getElementById('generate'),statusBox=document.getElementById('status'),result=document.getElementById('result');
