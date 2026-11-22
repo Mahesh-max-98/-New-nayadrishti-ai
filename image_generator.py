@@ -406,7 +406,7 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
 
 def create_fallback_news_graphic(title, summary=""):
     """Create a topic-specific illustrated scene when AI image service is unavailable."""
-    headline = re.sub(r"\\s+", " ", (title or "Latest News").strip())[:180]
+    headline = re.sub(r"\s+", " ", (title or "Latest News").strip())[:180]
     low = (headline + " " + (summary or "")).lower()
     canvas = Image.new("RGB", (1200, 900), (8, 20, 42))
     draw = ImageDraw.Draw(canvas)
