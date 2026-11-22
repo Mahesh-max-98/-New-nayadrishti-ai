@@ -496,7 +496,12 @@ def check_feeds():
                 status = "draft"
                 if image_data:
                     try:
-                        publish_result = publish_image(summary, image_data)
+                        # Keep AI disclosure in the post caption, not stamped across
+                        # the photograph, so readers are not misled about generated imagery.
+                        publish_caption = summary
+                        if image_status == "ai_illustration":
+                            publish_caption = summary.rstrip() + "\nचित्र: AI द्वारा तयार गरिएको सम्पादकीय चित्र।"
+                        publish_result = publish_image(publish_caption, image_data)
                         if publish_result.get("published"):
                             result["published"] += 1
                             status = "published"
