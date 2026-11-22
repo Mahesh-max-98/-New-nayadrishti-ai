@@ -274,12 +274,49 @@ def _visual_direction(title, description, summary, visual_brief=""):
     return direction
 
 
+def _research_visual_plan(title, description, summary, research_context=""):
+    """Create a fact-locked image scene plan from full article text before generation."""
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return ""
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+    prompt = """You are the visual editor of a fact-checking Nepali newsroom.
+Create a specific visual production plan for ONE editorial illustration.
+Use the full article as primary evidence. Corroborating research is context only.
+Do not invent a location, person's face, uniform, logo, crowd, action or event.
+Resolve the exact event type: transfer vs match, appointment vs speech, proposal vs
+confirmed decision, result announcement vs classroom activity, arrival vs meeting.
+If the article does not establish an exact location/background, explicitly say so and
+choose a neutral symbolic background rather than inventing one.
+Return concise labelled fields: SUBJECT, SCENE/BACKGROUND, FOREGROUND, MIDGROUND,
+BACKGROUND DETAILS, IDENTITY (avoid identifiable AI faces), MUST INCLUDE, MUST AVOID,
+CONFIDENCE. Be specific, not merely 'politics' or 'cricket'. Under 160 words.
+
+HEADLINE:
+""" + str(title or "")[:350] + "\nARTICLE:\n" + str(description or "")[:6500] +
+"\nPOST:\n" + str(summary or "")[:600] + "\nRESEARCH LEADS (not proof):\n" + str(research_context or "")[:2200]
+    try:
+        response = requests.post(GROQ_URL, headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+            json={"model": model, "messages": [{"role": "system", "content": "Strict factual visual editor. Never invent details."}, {"role": "user", "content": prompt}],
+                  "temperature": 0.1, "include_reasoning": False, "reasoning_effort": "low", "max_completion_tokens": 300}, timeout=(10, 35))
+        if not response.ok:
+            raise RuntimeError("Groq visual plan HTTP " + str(response.status_code))
+        choices = response.json().get("choices") or []
+        plan = (choices[0].get("message") or {}).get("content") if choices else ""
+        if isinstance(plan, list):
+            plan = " ".join(part.get("text", "") for part in plan if isinstance(part, dict))
+        return re.sub(r"\\s+", " ", str(plan or "")).strip()[:1400]
+    except Exception as exc:
+        import logging
+        logging.getLogger("nayadrishti.images").warning("Detailed visual planning unavailable: %s", exc)
+        return ""
+
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a compact, story-locked prompt; put the subject first so providers cannot truncate it."""
     headline = re.sub(r"\\s+", " ", (title or "").strip())[:240]
     facts = re.sub(r"\\s+", " ", (description or "").strip())[:900]
     post = re.sub(r"\\s+", " ", (summary or "").strip())[:240]
-    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:180]
+    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:1200]
     direction = _visual_direction(headline, facts, post, brief)
 
     # Put the exact scene and exclusions at the beginning. The previous long
@@ -309,8 +346,11 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     )
     return prompt[:2048]
 
-def generate_news_image(title, description="", summary="", visual_brief=""):
-    """Generate a story-specific editorial illustration using configured providers."""
+def generate_news_image(title, description="", summary="", visual_brief="", _qa_retry=0):
+    """Research the article, then generate a specific editorial illustration."""
+    researched_plan = _research_visual_plan(title, description, summary, visual_brief)
+    if researched_plan:
+        visual_brief = "ARTICLE-BASED VISUAL PLAN: " + researched_plan
     global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
 
     prompt = _build_image_prompt(title, description, summary, visual_brief)
