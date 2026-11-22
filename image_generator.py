@@ -273,44 +273,29 @@ def _research_visual_plan(title, description, summary, research_context=""):
         return ""
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
-    """Build a story-specific Cloudflare prompt within its 2,048-character limit."""
-    headline = re.sub(r"\s+", " ", (title or "").strip())[:240]
-    facts = re.sub(r"\s+", " ", (description or "").strip())[:650]
-    post = re.sub(r"\s+", " ", (summary or "").strip())[:180]
-    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:600]
-    direction = _visual_direction(headline, facts, post, brief)[:180]
-
-    # Keep the factual story context first, then reserve room for the complete
-    # visual-quality and anti-fabrication instructions. Cloudflare FLUX rejects
-    # prompts longer than 2,048 characters.
-    context = (
+    """Build a compact, story-specific prompt with a generous provider-limit margin."""
+    clean = lambda value, limit: re.sub(r"\\s+", " ", str(value or "").strip())[:limit]
+    headline = clean(title, 220)
+    facts = clean(description, 260)
+    post = clean(summary, 120)
+    brief = clean(visual_brief, 180)
+    direction = clean(_visual_direction(headline, facts, post, brief), 120)
+    # Keep the total comfortably below both character- and token-based limits.
+    prompt = (
+        "Create a realistic editorial illustration for this exact news story. "
         "HEADLINE: " + headline + " "
-        "ARTICLE FACTS: " + facts + " "
+        "FACTS: " + facts + " "
         "POST: " + post + " "
-        "ARTICLE-BASED VISUAL PLAN: " + brief + " "
-        "CATEGORY GUIDANCE: " + direction + " "
+        "VISUAL PLAN: " + brief + " "
+        "GUIDANCE: " + direction + " "
+        "Show one clear main subject, meaningful foreground and story-specific background. "
+        "Use natural lighting, accurate perspective and balanced colours. "
+        "Do not invent people, faces, locations, flags, logos, dates, actions or events. "
+        "If uncertain, use a neutral symbolic scene. No text, letters, numbers, signs, "
+        "documents, screens, watermarks, unrelated objects, collage panels or empty centre. "
+        "Professional photojournalistic editorial illustration; not evidence."
     )
-    instructions = (
-        "Create a realistic, premium editorial news illustration for this exact story. "
-        "The headline and article are the source of truth. Show one large, unmistakable main subject, "
-        "a meaningful foreground and a story-specific background; use a fresh, natural camera angle, "
-        "plausible lighting, accurate perspective, lifelike materials and balanced natural colours. "
-        "Match the actual event: do not turn a proposal into a confirmed event, a transfer into a match, "
-        "or an arrival into a meeting. Never invent a location, action, crowd, uniform, vehicle, flag, "
-        "logo, date, statistic or identifiable real person's face. If details are uncertain, use a "
-        "specific neutral symbolic scene rather than guessing. No readable or pseudo-readable text, "
-        "letters, numbers, signs, screens, newspapers, documents, captions, logos or watermarks. "
-        "No unrelated props, repeated stock-photo settings, empty centre, decorative filler, "
-        "collage panels, distorted anatomy, plastic skin, excessive glow or oversaturated colours. "
-        "Professional photojournalistic composition. This is an AI editorial illustration, not evidence."
-    )
-    # Leave a safety margin below the API's 2,048-character hard limit.
-    context_budget = 1900 - len(instructions)
-    if context_budget < 200:
-        raise ValueError("Image prompt instructions exceed the safe API length.")
-    context = context[:context_budget]
-    prompt = context + instructions
-    return prompt[:1900]
+    return prompt[:1200]
 
 
 def _check_visual_match(raw_image, title, description, visual_plan):
