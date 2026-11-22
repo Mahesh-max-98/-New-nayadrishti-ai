@@ -32,7 +32,6 @@ time, place, number, decision, or next step) whenever those facts are in the tex
 
 STYLE RULES:
 - Do not produce a separate headline and then repeat the same information in a description.
-- Do not write an English translation or repeat the original English publisher headline.
 - Do not write generic filler about a publisher publishing a story.
 - Preserve the precise level of certainty. Do not turn plans, proposals or searches
   into confirmed decisions.
