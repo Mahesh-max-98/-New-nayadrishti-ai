@@ -602,6 +602,14 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
             _image_studio_jobs[job_id] = {"status": "error", "error": message}
 
 
+def _studio_is_busy():
+    with _image_studio_lock:
+        return any(
+            item.get("status") in ("queued", "running")
+            for item in _image_studio_jobs.values()
+        )
+
+
 def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
                       references=None, edit_source=None, parent_image_id=None,
                       enhanced_prompt="", edit_instruction="", original_prompt="", conversation_context="", variation=False):
@@ -679,6 +687,8 @@ def api_generate_image():
         return jsonify(error="Enter a prompt describing the image you want."), 400
     if len(prompt) > 6000:
         return jsonify(error="The prompt is too long (maximum 6,000 characters)."), 400
+    if _studio_is_busy():
+        return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
     if style not in _STUDIO_STYLE_GUIDES:
         style = "auto"
     width, height = _studio_dimensions(ratio)
@@ -715,6 +725,8 @@ def api_edit_image():
     instruction = str(payload.get("instruction") or "").strip()
     if not image_id or not instruction:
         return jsonify(error="Select an image and describe the edit you want."), 400
+    if _studio_is_busy():
+        return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
     source = get_image(image_id, _studio_owner())
     if not source:
         return jsonify(error="Image not found or not accessible."), 404
@@ -755,13 +767,15 @@ def api_image_variations():
     image_id = str(payload.get("image_id") or "").strip()
     if not image_id:
         return jsonify(error="Select an image first."), 400
+    if _studio_is_busy():
+        return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
     source = get_image(image_id, _studio_owner())
     if not source:
         return jsonify(error="Image not found or not accessible."), 404
     instruction = str(payload.get("instruction") or "Create a subtle alternate version.").strip()
     width, height = _studio_dimensions(payload.get("aspect_ratio") or "4:3")
     prior = get_conversation(source["conversation_id"], _studio_owner())
-    prior_context = "\\n".join(
+    prior_context = chr(10).join(
         f"{message['role']}: {message['content']}"
         for message in (prior or {}).get("messages", [])[-8:]
         if message.get("content")
