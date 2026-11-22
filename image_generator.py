@@ -259,49 +259,52 @@ def _visual_direction(title, description, summary, visual_brief=""):
 
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
-    """Build a compact, fact-prioritised prompt for a clearly labelled news reconstruction."""
-    headline = re.sub(r"\s+", " ", (title or "").strip())[:260]
-    facts = re.sub(r"\s+", " ", (description or "").strip())[:520]
-    post = re.sub(r"\s+", " ", (summary or "").strip())[:260]
-    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:320]
+    """Build a detailed, headline-faithful editorial photography prompt."""
+    headline = re.sub(r"\\s+", " ", (title or "").strip())[:260]
+    facts = re.sub(r"\\s+", " ", (description or "").strip())[:520]
+    post = re.sub(r"\\s+", " ", (summary or "").strip())[:260]
+    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:320]
     direction = _visual_direction(headline, facts, post, brief)
 
-    # Put story facts before photographic styling. The 2,048-character API limit
-    # must never cut off the actual event and leave only generic camera language.
+    # Image models perform better when the story subject and physical scene are
+    # specified before style. Headline typography is always composed separately.
     prompt = (
-        "NEWS EDITORIAL IMAGE — NOT A REAL NEWS PHOTOGRAPH. Generate the photograph "
-        "BACKGROUND ONLY. Do not write, draw, print, spell, or render the headline, "
-        "caption, letters, words, numbers, logos, signs, watermarks or typography anywhere. "
-        "The NayaDrishti app adds the headline separately after image generation. "
-        "MOST IMPORTANT: understand the exact event in the headline, then create a "
-        "single concrete scene that communicates THAT event at first glance. Do not "
-        "make a generic image for the broad topic. The scene must agree with the "
-        "headline and source facts; if they do not support a literal scene, use a "
-        "specific but neutral symbolic scene. "
-        "FACT SAFETY: never turn a rumour into fact, preview into result, proposal into "
-        "decision, transfer into match action, or allegation into proven guilt. Never "
-        "invent a real person's face, event, location, uniform, club/company logo, "
-        "flag, score, statistic, document, casualty, damage or dramatic action. "
-        "SPORT ACCURACY: cricket means cricket pitch, bat, ball and stumps only; "
-        "football means association-football pitch and ball; hockey means the correct "
-        "hockey field/rink and hockey stick. Never mix sports or use unrelated props. "
-        "For a player transfer, return, signing or contract story, show a relevant "
-        "stadium, pavilion or symbolic equipment scene, NOT an invented live match. "
-        "For a match report, show match context only when supported by the facts. "
-        "No food, tea, random office meeting, generic technology background or unrelated "
-        "stock-photo scene. One subject, one coherent scene, no collage or split-screen. "
-        "Photorealistic documentary-editorial photography aesthetic, natural available "
-        "light, physically correct shadows, realistic materials, natural colours, "
-        "credible lens perspective, subtle grain, balanced exposure, realistic scale. "
-        "Avoid CGI, 3D render, waxy surfaces, distorted anatomy, duplicated objects, "
-        "fantasy lighting, oversaturation and fake HDR. Landscape 4:3 composition, "
-        "clear subject, uncluttered frame, clean lower space for the separately added "
-        "news-card headline. "
-        "HEADLINE — describe this exact story visually: " + headline + " "
-        "VERIFIED SOURCE DETAILS — use only these facts: " + facts + " "
-        "STORY CONTEXT: " + post + " "
-        "SPECIFIC SCENE DIRECTION: " + direction[:420] + " "
-        "ADDITIONAL VISUAL CONTEXT (not independent proof): " + brief
+        "Create ONE premium photorealistic editorial NEWS IMAGE for a professional "
+        "Nepali digital newsroom. This is an illustrative reconstruction, NOT documentary "
+        "evidence and NOT a real photograph of an event. Output image background only. "
+        "ABSOLUTELY NO TEXT: no headline, letters, numbers, captions, signs, logos, "
+        "watermarks, badges, fake writing or typography. NayaDrishti will add all text "
+        "afterward. "
+        "STORY MATCH IS THE HIGHEST PRIORITY. Read the headline and facts carefully. "
+        "Show the actual central subject and the specific action or situation described; "
+        "do not merely show a generic image for the category. Use one clear visual idea, "
+        "one coherent location and physically plausible objects. "
+        "SCENE DESIGN: clear main subject in the foreground, relevant setting in the "
+        "middle distance, restrained contextual background. Make the subject immediately "
+        "recognisable at phone-screen size. Use a natural decisive moment, believable "
+        "human scale, realistic perspective and uncluttered composition. "
+        "PHOTOCRAFT: high-end international newspaper photo-desk aesthetic, full-frame "
+        "camera look, natural 35mm or 50mm lens perspective, realistic depth of field, "
+        "soft available daylight or believable venue lighting, accurate skin and material "
+        "texture, balanced highlights, detailed shadows, subtle film grain, restrained "
+        "colour grading and lifelike contrast. Beautiful but credible, crisp subject, "
+        "no plastic skin, no glossy CGI, no 3D render, no fantasy lighting, no artificial "
+        "HDR, no oversaturation, no painterly look, no collage, no split screen. "
+        "FACTUAL SAFETY: never invent a person's identity or face, a score, result, "
+        "uniform, logo, location, crowd, injury, damage, quote or event detail not stated. "
+        "For a result announcement, show a plausible school/exam context and a blank "
+        "generic result sheet; never fabricate marks, names or certificates. For a "
+        "transfer/signing/return, show a grounded club-ground or equipment context, not "
+        "a fake match. For an actual match report, show only the sport and scene supported "
+        "by the facts. Cricket uses cricket equipment only; football uses football "
+        "equipment only; hockey uses hockey equipment only. "
+        "SPECIFIC SCENE DIRECTION: " + direction[:500] + " "
+        "EXACT HEADLINE: " + headline + " "
+        "SOURCE FACTS (do not add facts): " + facts + " "
+        "SHORT NEWS SUMMARY: " + post + " "
+        "VISUAL RESEARCH NOTES (reference only, not proof): " + brief + " "
+        "Landscape 4:3, editorial framing, reserve clean lower 22 percent for the app's "
+        "separate headline overlay."
     )
     return prompt[:2048]
 
