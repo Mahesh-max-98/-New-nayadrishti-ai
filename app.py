@@ -13,7 +13,7 @@ from database import init_db, get_drafts, get_draft_image, replace_draft_image
 from image_generator import create_fallback_news_graphic, generate_news_image
 from news_monitor import check_feeds, configured_feeds, fetch_article_text
 from google_research import research_story
-from image_provider import generate_image as generate_studio_image, ImageProviderError
+from image_provider import generate_image as generate_studio_image, ImageProviderError, get_last_provider
 from image_editor import edit_image as edit_studio_image, create_variation
 from prompt_enhancer import enhance_prompt, PromptEnhancementError
 from image_history import (
@@ -581,7 +581,7 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
             enhanced_prompt=enhanced_prompt,
             edit_instruction=edit_instruction,
             parent_image_id=parent_image_id,
-            model_name=os.getenv("IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-9b"),
+            model_name=get_last_provider() or os.getenv("IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-9b"),
         )
         add_message(
             conversation_id, owner_id, "assistant",
