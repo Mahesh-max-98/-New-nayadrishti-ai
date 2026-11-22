@@ -398,7 +398,7 @@ def create_fallback_news_graphic(title, summary=""):
         headline_font = label_font = ImageFont.load_default()
     draw.rounded_rectangle((100, 120, 560, 178), radius=14, fill=(20, 75, 125))
     draw.text((122, 135), "NAYADRISHTI  |  NEWS UPDATE", font=label_font, fill=(255, 255, 255))
-    headline = re.sub(r"\\s+", " ", (title or "Latest News").strip())[:180]
+    headline = re.sub(r"\s+", " ", (title or "Latest News").strip())[:180]
     words, lines, line = headline.split(), [], ""
     for word in words:
         candidate = (line + " " + word).strip()
