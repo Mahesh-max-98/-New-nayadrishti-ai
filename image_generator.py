@@ -5,7 +5,7 @@ import re
 import time
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
 API_BASE = "https://api.cloudflare.com/client/v4/accounts"
@@ -29,7 +29,15 @@ def _compose_news_card(image, title, summary, ai_generated=False):
         new_height = int(width / target_ratio)
         top = max(0, (height - new_height) // 2)
         image = image.crop((0, top, width, top + new_height))
-    image = image.resize((1200, 900), Image.Resampling.LANCZOS).convert("RGBA")
+    # Upscale first, then apply restrained photographic finishing. This improves
+    # perceived clarity without inventing detail or changing the reported scene.
+    image = image.resize((1200, 900), Image.Resampling.LANCZOS).convert("RGB")
+    image = ImageEnhance.Color(image).enhance(1.06)
+    image = ImageEnhance.Contrast(image).enhance(1.045)
+    image = ImageEnhance.Brightness(image).enhance(1.015)
+    image = ImageEnhance.Sharpness(image).enhance(1.12)
+    image = image.filter(ImageFilter.UnsharpMask(radius=1.35, percent=115, threshold=4))
+    image = image.convert("RGBA")
 
     # Brand palette: midnight navy, clean white, and restrained signal-gold.
     navy = (7, 18, 36, 238)
@@ -72,20 +80,23 @@ def _compose_news_card(image, title, summary, ai_generated=False):
     footer_font = load_font(22, True)
     badge_font = load_font(19, True)
 
-    # Draw a simple original globe + eye + signal mark (not a copied third-party logo).
-    cx, cy = 62, 55
-    draw.ellipse((cx - 34, cy - 34, cx + 34, cy + 34), outline=cyan, width=4)
-    draw.arc((cx - 20, cy - 34, cx + 20, cy + 34), 0, 360, fill=cyan, width=2)
-    draw.arc((cx - 34, cy - 18, cx + 34, cy + 18), 0, 360, fill=cyan, width=2)
+    # Compact top-left brand plaque keeps the original NayaDrishti identity legible
+    # on both bright and dark photographs without hiding the main news subject.
+    draw.rounded_rectangle((22, 15, 455, 105), radius=20,
+                           fill=(5, 17, 35, 205), outline=(255, 255, 255, 55), width=2)
+    cx, cy = 70, 60
+    draw.ellipse((cx - 32, cy - 32, cx + 32, cy + 32), outline=cyan, width=4)
+    draw.arc((cx - 18, cy - 32, cx + 18, cy + 32), 0, 360, fill=cyan, width=2)
+    draw.arc((cx - 32, cy - 16, cx + 32, cy + 16), 0, 360, fill=cyan, width=2)
     draw.ellipse((cx - 15, cy - 7, cx + 15, cy + 7), outline=white, width=3)
     draw.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=gold)
-    draw.arc((cx + 13, cy - 40, cx + 48, cy - 5), 205, 315, fill=gold, width=3)
-    draw.arc((cx + 19, cy - 46, cx + 58, cy - 1), 205, 315, fill=gold, width=2)
+    draw.arc((cx + 12, cy - 38, cx + 47, cy - 4), 205, 315, fill=gold, width=3)
+    draw.arc((cx + 18, cy - 44, cx + 57, cy - 1), 205, 315, fill=gold, width=2)
 
-    draw.text((112, 18), "NayaDrishti", font=brand_font, fill=white,
-              stroke_width=1, stroke_fill=(0, 0, 0, 90))
-    draw.text((115, 68), "A NEW PERSPECTIVE ON EVERY STORY", font=tagline_font, fill=muted)
-    draw.rounded_rectangle((110, 101, 330, 106), radius=2, fill=gold)
+    draw.text((119, 26), "NayaDrishti", font=brand_font, fill=white,
+              stroke_width=1, stroke_fill=(0, 0, 0, 110))
+    draw.text((122, 72), "नयाँ दृष्टि, नयाँ खबर।", font=tagline_font, fill=muted)
+    draw.rounded_rectangle((120, 96, 320, 100), radius=2, fill=gold)
 
     if ai_generated:
         label = "AI-GENERATED EDITORIAL ILLUSTRATION"
@@ -311,15 +322,16 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
         "ARTICLE FACTS: " + facts + " "
         "POST: " + post + " "
         "CATEGORY SAFETY CHECK (secondary only; never override the story plan): " + direction[:250] + " "
-        "Create one photorealistic editorial illustration for THIS exact news story. "
-        "First identify who or what the headline is about, what actually happened, and where it happened if the article states a place. "
-        "The focal subject, action, setting and every important background detail must directly represent this headline and article. "
-        "Do not reuse a default location or the same scene template across unrelated stories. Never assume Kathmandu, Nepal, an airport, classroom, office or stadium. "
-        "A named place may appear only when supported by the article. If no place is established, create a distinct subject-specific symbolic setting instead of guessing. "
-        "Keep one clear focal subject, realistic depth, coherent foreground/middle-ground/background, natural documentary-style light and accurate proportions. "
+        "Create a premium, highly realistic editorial news photograph-style illustration for THIS exact story. "
+        "Read the headline carefully and extract the exact subject, event, action, and supported location before composing. "
+        "The main subject must be large, clearly recognizable as the reported topic, and visually dominant; use meaningful foreground, midground and background details drawn from the article. "
+        "Make every scene distinct to this story. Never recycle the same city, airport, classroom, office, stadium, generic person-at-desk pose or background across unrelated stories. "
+        "Only show a named location, national flag, uniform, vehicle, building or real-world event detail when the article supports it. "
+        "Use natural documentary photography qualities: realistic daylight or plausible event lighting, lifelike materials and skin texture, accurate anatomy and perspective, crisp focal detail, subtle depth of field, balanced exposure, rich but natural colour, clean edges and professional photojournalistic composition. "
+        "Avoid plastic-looking skin, waxy faces, oversaturated colours, excessive glow, artificial HDR, cartoon styling, blurry subjects, distorted hands, duplicated objects, random signs and fake text. "
         "Do not fabricate a recognisable face of a real person; use a non-identifiable rear view, silhouette or symbolic composition unless an authentic permitted photo is supplied separately. "
         "Do not add unrelated people, props, sport equipment, buildings, flags, logos, signs, text, numbers, watermarks, collage panels or activities. "
-        "If headline and article disagree or the scene is uncertain, choose the narrower fact-supported subject and a neutral background. "
+        "If the article does not establish a real location or scene, create a detailed, visually compelling symbolic editorial scene specific to the subject instead of guessing. "
         "This is an AI editorial illustration, not documentary evidence."
     )
     return prompt[:3000]
