@@ -281,21 +281,19 @@ def _research_visual_plan(title, description, summary, research_context=""):
     if not api_key:
         return ""
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-    prompt = """You are the visual editor of a fact-checking Nepali newsroom.
-Create a specific visual production plan for ONE editorial illustration.
-Use the full article as primary evidence. Corroborating research is context only.
-Do not invent a location, person's face, uniform, logo, crowd, action or event.
-Resolve the exact event type: transfer vs match, appointment vs speech, proposal vs
-confirmed decision, result announcement vs classroom activity, arrival vs meeting.
-If the article does not establish an exact location/background, explicitly say so and
-choose a neutral symbolic background rather than inventing one.
-Return concise labelled fields: SUBJECT, SCENE/BACKGROUND, FOREGROUND, MIDGROUND,
-BACKGROUND DETAILS, IDENTITY (avoid identifiable AI faces), MUST INCLUDE, MUST AVOID,
-CONFIDENCE. Be specific, not merely 'politics' or 'cricket'. Under 160 words.
-
-HEADLINE:
-""" + str(title or "")[:350] + "\nARTICLE:\n" + str(description or "")[:6500] +
-"\nPOST:\n" + str(summary or "")[:600] + "\nRESEARCH LEADS (not proof):\n" + str(research_context or "")[:2200]
+    prompt = (
+        "You are the visual editor of a fact-checking Nepali newsroom.\\n"
+        "Create a specific visual production plan for ONE editorial illustration.\\n"
+        "Use the full article as primary evidence. Corroborating research is context only.\\n"
+        "Do not invent a location, person face, uniform, logo, crowd, action or event.\\n"
+        "Resolve exact event type: transfer vs match, appointment vs speech, proposal vs confirmed decision, result announcement vs classroom activity, arrival vs meeting.\\n"
+        "If exact location/background is not established, say so and choose a neutral symbolic background.\\n"
+        "Return labelled fields: SUBJECT, SCENE/BACKGROUND, FOREGROUND, MIDGROUND, BACKGROUND DETAILS, IDENTITY, MUST INCLUDE, MUST AVOID, CONFIDENCE. Be specific, under 160 words.\\n"
+        "HEADLINE: " + str(title or "")[:350] +
+        "\\nARTICLE: " + str(description or "")[:6500] +
+        "\\nPOST: " + str(summary or "")[:600] +
+        "\\nRESEARCH LEADS (not proof): " + str(research_context or "")[:2200]
+    )
     try:
         response = requests.post(GROQ_URL, headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
             json={"model": model, "messages": [{"role": "system", "content": "Strict factual visual editor. Never invent details."}, {"role": "user", "content": prompt}],
