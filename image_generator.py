@@ -300,7 +300,7 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
         "numbers, symbols that resemble writing, logos, watermarks or unrelated props. "
         "Professional photojournalistic editorial illustration; not evidence."
     )
-    return prompt[:1200]
+    return prompt[:1650]
 
 
 def _check_visual_match(raw_image, title, description, visual_plan):
