@@ -16,35 +16,32 @@ def write_summary(title, description, source_name, article_url):
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
     prompt = f"""
-You are the careful news editor for NayaDrishti, a Nepal-focused news page.
+You are NayaDrishti's careful Nepali news editor.
 
-Write a useful, factual Facebook news summary using the supplied article text.
-Do NOT write generic filler such as "the publisher has published a story",
-"समाचार प्रकाशित गरेको छ", "the report is about", or merely repeat the headline.
-Explain the actual development: who did/said/decided what, what happened, and
-any important result or next step stated in the article. Include concrete details
-only when explicitly supported by the supplied article text. If article text is
-missing or too thin, say so in a concise neutral way rather than guessing.
+Create ONE strong, complete Nepali Facebook news headline/lead from the supplied
+article text. It must communicate the actual development in one concise sentence:
+the main subject, what happened or is being planned, and the key context (such as
+time, place, number, decision, or next step) whenever those facts are in the text.
 
-STRICT OUTPUT RULES:
-- Write Nepali first, then English.
-- Use 3-5 informative content lines in total, plus one final source-credit line.
-- Line 1: a clear Nepali headline with one relevant emoji.
-- Lines 2-3: one or two concise Nepali summary lines explaining the actual news.
-- Line 4: a concise English translation/summary of the key development, with a
-  relevant emoji only in the English headline if you include one.
-- You may use line 5 for one essential detail or a clear English headline.
-- Final line must be exactly: - {source_name}
-- Never say "{source_name} reported/published/said" in the body. The source name
-  belongs only on the final credit line.
-- Use natural Nepali and clear English. Keep the two language versions faithful.
-- No hashtags, greetings, "Read more", article URL, markdown dividers, or filler.
-- Return only the post, without blank lines or visible slash-n characters.
+STYLE RULES:
+- Do not produce a separate headline and then repeat the same information in a description.
+- Do not write an English translation or repeat the original English publisher headline.
+- Do not write generic filler about a publisher publishing a story.
+- Preserve the precise level of certainty. Do not turn plans, proposals or searches
+  into confirmed decisions.
+- Use natural, clear Nepali, not word-for-word translation.
+- Put the most important news first. Aim for one complete sentence, usually 15-30 words.
+- Include one relevant emoji at the end if appropriate.
+- Append the original publisher credit at the very end in this exact style:
+  " - {source_name}"
+- The publisher name must not appear elsewhere in the sentence.
+- Return exactly ONE line: Nepali news sentence + source credit. No English,
+  extra explanation, hashtags, URL, markdown, or blank lines.
+- If the article text is insufficient, do not invent details. Use only confirmed facts.
 
-SUPPLIED INFORMATION (for fact-checking and writing only; do not display source):
-Source name: {source_name}
-Title: {title}
-Description: {description}
+Publisher: {source_name}
+Original headline: {title}
+Article text: {description}
 Article URL: {article_url}
 """
 
@@ -118,24 +115,24 @@ Article URL: {article_url}
     # Enforce the agreed short-post format before any image is generated
     # or a post can reach the Facebook publisher.
     lines = [line.strip() for line in result.splitlines() if line.strip()]
-    # Require a final source credit and reject generic publisher-announcement filler.
-    if not lines or lines[-1] != f"- {source_name}":
-        lines = [line for line in lines if not line.lower().startswith(("source:", "source -", "— "))]
-        lines.append(f"- {source_name}")
-    body = " ".join(lines[:-1]).lower()
+    # Enforce one complete Nepali news line with a single source credit.
     generic_phrases = (
         "has published a story", "has published a news", "has reported a story",
         "समाचार प्रकाशित गरेको छ", "समाचार प्रकाशन गरेको छ",
         "सम्बन्धी समाचार प्रकाशित", "समाचार सार्वजनिक गरेको छ",
     )
-    if any(phrase in body for phrase in generic_phrases):
+    lines = [line.strip() for line in result.splitlines() if line.strip()]
+    body = " ".join(lines).strip()
+    for suffix in (f" - {source_name}", f" — {source_name}", f" – {source_name}"):
+        if body.endswith(suffix):
+            body = body[:-len(suffix)].strip()
+            break
+    body = body.splitlines()[0].strip() if body else ""
+    if not body:
+        raise RuntimeError("Generated news headline is empty.")
+    if any(phrase in body.lower() for phrase in generic_phrases):
         raise RuntimeError("Generated post contains a generic publisher announcement instead of a news summary.")
-    if not 4 <= len(lines) <= 6:
-        raise RuntimeError(
-            f"Generated news post has {len(lines)} lines including source credit; expected 4 to 6. "
-            "The item is skipped rather than publishing an incorrectly formatted post."
-        )
-    return "\n".join(lines)
+    return f"{body} - {source_name}"
 
 def write_visual_brief(title, description, source_name):
     """Extract a compact, fact-grounded visual brief for the story image."""
