@@ -73,7 +73,7 @@ Article URL: {article_url}
     )
 
     if not response.ok:
-        detail = response.text[:500].replace("\\n", " ")
+        detail = response.text[:500].replace("\n", " ").replace("\r", " ")
         raise RuntimeError(
             f"Groq API error {response.status_code}: {detail}"
         )
@@ -90,13 +90,14 @@ Article URL: {article_url}
     # Some compatible APIs may return text as content blocks rather than a
     # single string. Extract only text blocks; never use private reasoning.
     if isinstance(result, list):
-        result = "\\n".join(
+        result = "\n".join(
             block.get("text", "")
             for block in result
             if isinstance(block, dict) and block.get("type") == "text"
         )
 
-    result = str(result).strip()
+    result = str(result).replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+    result = result.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not result:
         finish_reason = choice.get("finish_reason", "unknown")
         usage = data.get("usage") or {}
@@ -116,7 +117,7 @@ Article URL: {article_url}
             f"Generated news post has {len(lines)} lines; expected 3 to 6. "
             "The item is skipped rather than publishing an incorrectly formatted post."
         )
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 def write_visual_brief(title, description, source_name):
     """Extract a compact, fact-grounded visual brief for the story image."""
