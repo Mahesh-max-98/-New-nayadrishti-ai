@@ -12,7 +12,7 @@ import requests
 from ai_writer import write_summary
 from database import already_seen, already_seen_title, get_draft_for_image_retry, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
-from image_generator import create_publisher_news_card, generate_news_image
+from image_generator import create_publisher_news_card, create_fallback_news_graphic, generate_news_image
 from google_research import research_story
 
 log = logging.getLogger("nayadrishti")
@@ -297,10 +297,23 @@ def check_feeds():
                         image_status = "ai_illustration"
                         result["ai_illustrations_used"] += 1
                 except Exception as image_exc:
-                    log.exception("Image creation failed for %s", source_name)
+                    log.warning("Image provider unavailable for %s: %s", source_name, image_exc)
                     image_error = f"{type(image_exc).__name__}: {str(image_exc)[:350]}"
+                    # Never attach an unrelated stock photo. A clearly labelled,
+                    # topic-headline graphic keeps the draft readable without
+                    # pretending to be a real scene or an AI photograph.
+                    try:
+                        image_data = create_fallback_news_graphic(title, summary)
+                        image_status = "fallback_graphic"
+                        result.setdefault("fallback_graphics_used", 0)
+                        result["fallback_graphics_used"] += 1
+                    except Exception as fallback_exc:
+                        log.exception("Fallback graphic failed for %s", source_name)
+                        result["errors"].append(
+                            f"{source_name} fallback graphic: {type(fallback_exc).__name__}: {str(fallback_exc)[:160]}"
+                        )
                     result["errors"].append(
-                        f"{source_name} image: {type(image_exc).__name__}: {str(image_exc)[:180]}"
+                        f"{source_name} image provider unavailable: {type(image_exc).__name__}: {str(image_exc)[:180]}"
                     )
 
                 # A draft is saved even when image creation fails; image-less drafts
