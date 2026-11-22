@@ -436,9 +436,9 @@ def check_feeds():
     )
     result["note"] = (
         " Eighteen Google News RSS discovery feeds cover Nepal English/Nepali, NEB Result & News, RONB, BBC Nepali, eKantipur, Onlinekhabar, Setopati, Ratopati, Nepal News, Nagarik, myRepublica, The Himalayan Times, Annapurna Post, cricket, world and football; direct publisher RSS feeds include NEB Result & News and The Kathmandu Post. Facebook page references are discovery leads only; stories are rewritten from original reporting and corroborated where possible. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
-        "through Wikimedia Commons by default and checked with Groq vision; existing "
-        "Google Custom Search credentials can optionally enable Google Images. Reference "
-        "images are never republished. Publisher photos are used only when their article "
+        "through Google Images only when Google Custom Search credentials are configured; "
+        "otherwise the story headline and reporting context guide the illustration. "
+        "Visual-reference images are never republished. Publisher photos are used only when their article "
         "and image hosts are explicitly allowlisted; otherwise a labelled AI illustration "
         "is used."
     )
