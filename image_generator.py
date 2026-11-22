@@ -293,7 +293,7 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
         "Make every scene distinct to this story. Never recycle the same city, airport, classroom, office, stadium, generic person-at-desk pose or background across unrelated stories. "
         "Only show a named location, national flag, uniform, vehicle, building or real-world event detail when the article supports it. "
         "Use natural documentary photography qualities: realistic daylight or plausible event lighting, lifelike materials and skin texture, accurate anatomy and perspective, crisp focal detail, subtle depth of field, balanced exposure, rich but natural colour, clean edges and professional photojournalistic composition. "
-        "Avoid plastic-looking skin, waxy faces, oversaturated colours, excessive glow, artificial HDR, cartoon styling, blurry subjects, distorted hands, duplicated objects, random signs and fake text. "
+        "Avoid plastic-looking skin, waxy faces, oversaturated colours, excessive glow, artificial HDR, cartoon styling, blurry subjects, distorted hands and duplicated objects. ""ABSOLUTE TEXT BAN: no readable or pseudo-readable text anywhere in the image. No newspaper, magazine, document, poster, banner, sign, label, screen text, captions, letters, numbers, logos or watermarks. Never depict a newspaper headline. "
         "Do not fabricate a recognisable face of a real person; use a non-identifiable rear view, silhouette or symbolic composition unless an authentic permitted photo is supplied separately. "
         "Do not add unrelated people, props, sport equipment, buildings, flags, logos, signs, text, numbers, watermarks, collage panels or activities. "
         "If the article does not establish a real location or scene, create a detailed, visually compelling symbolic editorial scene specific to the subject instead of guessing. "
@@ -318,7 +318,7 @@ def _check_visual_match(raw_image, title, description, visual_plan):
         model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
         prompt = (
             "Read the headline three times and compare it with the visible image and approved visual plan. "
-            "Check: (1) exact subject and event, (2) correct action, (3) whether the location is explicitly supported, "
+            "Check: (1) exact subject and event, (2) correct action, (3) whether the location is explicitly supported, (4) the image contains no text or text-like marks of any kind, no newspaper/document/sign/screen, "
             "(4) the background is story-specific and not a repeated generic location, "
             "(5) no unrelated objects, wrong sport, wrong country or invented activity, "
             "(6) no fabricated identifiable real-person likeness. "
@@ -328,7 +328,7 @@ def _check_visual_match(raw_image, title, description, visual_plan):
             "HEADLINE PASS 3: " + str(title or "")[:300] + " "
             "ARTICLE: " + str(description or "")[:1800] + " "
             "VISUAL PLAN: " + str(visual_plan or "")[:1200] + " "
-            "Return exactly VERDICT: PASS or VERDICT: RETRY, then PROBLEM: one short reason. "
+            "Reject the image if it contains any newspaper, headline, fake writing, pseudo-letters, signs, labels, captions, numbers or other text-like marks, even when the main subject is correct. ""Return exactly VERDICT: PASS or VERDICT: RETRY, then PROBLEM: one short reason. "
             "Choose RETRY if either subject or background is clearly wrong or uncertain."
         )
         response = requests.post(
@@ -527,6 +527,7 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
             correction = (
                 visual_brief + " IMAGE REVIEW CORRECTION: " + review_note
                 + ". Regenerate the exact article scene with the correct background; "
+                "remove every newspaper, document, sign, screen, lettering, pseudo-text and all text-like marks; "
                 "remove every unrelated person, prop, activity and location."
             )
             return generate_news_image(
