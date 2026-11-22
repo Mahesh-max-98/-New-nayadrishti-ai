@@ -174,7 +174,7 @@ def _horde_image_bytes(image_value):
         parsed = urlparse(image_value)
         host = (parsed.hostname or "").lower()
         # Accept only the public object-storage hosts used for Horde image delivery.
-        allowed = host.endswith(".r2.dev") or host.endswith(".r2.cloudflarestorage.com")
+        allowed = host == "r2.dev" or host.endswith(".r2.dev") or host == "r2.cloudflarestorage.com" or host.endswith(".r2.cloudflarestorage.com")
         if parsed.scheme != "https" or not allowed:
             raise ImageProviderError("AI Horde returned an untrusted image download address.")
         try:
