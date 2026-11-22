@@ -306,19 +306,62 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     return prompt[:2048]
 
 def generate_news_image(title, description="", summary="", visual_brief=""):
+    """Generate a story-specific editorial illustration using configured providers."""
     global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
-    if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
-        raise RuntimeError("Free AI image quota is temporarily paused after a provider daily-limit response; using the branded fallback instead. " + _CLOUDFLARE_COOLDOWN_REASON)
-    """Generate a story-specific editorial illustration when no licensed photo is available."""
-    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
-    api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-    if not account_id or not api_token:
-        raise RuntimeError(
-            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not configured."
-        )
 
     prompt = _build_image_prompt(title, description, summary, visual_brief)
-    url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
+    pollinations_key = os.getenv("POLLINATIONS_API_KEY", "").strip()
+    pollinations_enabled = os.getenv("POLLINATIONS_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+
+    def try_pollinations():
+        # This provider is deliberately opt-in. Its API may consume account credits;
+        # never call it unless the operator explicitly enables it and supplies a key.
+        if not pollinations_enabled or not pollinations_key:
+            return None
+        from urllib.parse import quote
+
+        image_url = "https://gen.pollinations.ai/image/" + quote(prompt, safe="")
+        response = requests.get(
+            image_url,
+            params={
+                "model": "tongyi-mai/z-image-turbo",
+                "width": 1200,
+                "height": 900,
+            },
+            headers={"Authorization": f"Bearer {pollinations_key}", "Accept": "image/*"},
+            timeout=(20, 150),
+        )
+        if not response.ok:
+            detail = response.text[:400].replace(chr(10), " ")
+            raise RuntimeError(f"Pollinations image API error {response.status_code}: {detail}")
+        raw_image = response.content
+        if not raw_image:
+            raise RuntimeError("Pollinations returned an empty image.")
+        with Image.open(io.BytesIO(raw_image)) as check:
+            check.verify()
+        return raw_image
+
+    # Cloudflare remains the primary provider. If its daily free quota is paused,
+    # an explicitly enabled Pollinations backup may be tried before the local graphic.
+    if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+        raw = try_pollinations()
+        if raw is None:
+            raise RuntimeError(
+                "Cloudflare free image quota is paused and Pollinations backup is not enabled; "
+                "using the branded editorial graphic instead. " + _CLOUDFLARE_COOLDOWN_REASON
+            )
+    else:
+        account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+        api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+        if not account_id or not api_token:
+            raw = try_pollinations()
+            if raw is None:
+                raise RuntimeError(
+                    "Cloudflare credentials are not configured and Pollinations backup is disabled."
+                )
+        else:
+            raw = None
+            url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
     last_error = None
     raw = None
     for attempt in range(2):
@@ -394,8 +437,20 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
                 break
             if attempt == 0:
                 time.sleep(2)
-    if raw is None:
-        raise RuntimeError(f"Image generation failed after retry: {last_error}") from last_error
+            if raw is None:
+                # Only use the backup after Cloudflare has genuinely failed.
+                # A missing/disabled backup simply preserves the existing fallback-graphic path.
+                try:
+                    raw = try_pollinations()
+                except Exception as backup_error:
+                    raise RuntimeError(
+                        f"Cloudflare image generation failed: {last_error}; "
+                        f"Pollinations backup failed: {backup_error}"
+                    ) from backup_error
+                if raw is None:
+                    raise RuntimeError(
+                        f"Cloudflare image generation failed after retry: {last_error}"
+                    ) from last_error
 
     try:
         image = Image.open(io.BytesIO(raw)).convert("RGB")
