@@ -45,6 +45,23 @@ def init_image_history_db():
             )
         """)
         db.execute("""
+            CREATE TABLE IF NOT EXISTS image_uploads (
+                upload_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                image_data BYTEA NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMPTZ
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS image_uploads_owner_created
+            ON image_uploads(user_id, created_at DESC)
+        """)
+        db.execute("""
             CREATE TABLE IF NOT EXISTS image_messages (
                 message_id TEXT PRIMARY KEY,
                 conversation_id TEXT NOT NULL REFERENCES image_conversations(conversation_id),
@@ -260,5 +277,58 @@ def delete_conversation(conversation_id, user_id):
                WHERE conversation_id=%s AND user_id=%s AND deleted_at IS NULL
                RETURNING conversation_id""",
             (str(conversation_id), str(user_id)),
+        ).fetchone()
+        return bool(row)
+
+
+def save_upload(user_id, filename, mime_type, image_bytes):
+    """Keep source uploads separate from generated image versions."""
+    if not isinstance(image_bytes, (bytes, bytearray)) or not image_bytes:
+        raise ValueError("Uploaded image is empty.")
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise ValueError("Uploaded image exceeds the 10 MB limit.")
+    from PIL import Image, UnidentifiedImageError
+    import io
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            image.verify()
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            if image.format not in ("JPEG", "PNG", "WEBP"):
+                raise ValueError("Only JPG, PNG and WebP uploads are supported.")
+            width, height = image.size
+    except ValueError:
+        raise
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError("The uploaded file is not a valid image.") from exc
+    upload_id = uuid.uuid4().hex
+    with connection() as db:
+        db.execute(
+            """INSERT INTO image_uploads
+               (upload_id, user_id, filename, mime_type, width, height, image_data)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (upload_id, str(user_id), str(filename or "reference-image")[:180],
+             str(mime_type or "application/octet-stream")[:80], width, height, bytes(image_bytes)),
+        )
+    return {"upload_id": upload_id, "filename": str(filename or "reference-image")[:180],
+            "mime_type": mime_type, "width": width, "height": height}
+
+
+def get_upload(upload_id, user_id):
+    with connection() as db:
+        row = db.execute(
+            """SELECT upload_id, filename, mime_type, width, height, image_data, created_at
+               FROM image_uploads WHERE upload_id=%s AND user_id=%s AND deleted_at IS NULL""",
+            (str(upload_id), str(user_id)),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def delete_upload(upload_id, user_id):
+    with connection() as db:
+        row = db.execute(
+            """UPDATE image_uploads SET deleted_at=CURRENT_TIMESTAMP
+               WHERE upload_id=%s AND user_id=%s AND deleted_at IS NULL
+               RETURNING upload_id""",
+            (str(upload_id), str(user_id)),
         ).fetchone()
         return bool(row)
