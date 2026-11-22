@@ -48,6 +48,7 @@ def configured_feeds():
     # NEB Result & News is a high-relevance education/results publisher.
     # Its RSS feed is machine-readable; Facebook posts remain discovery leads only.
     feeds.append(("NEB Result & News", "https://nebnews.net/feed/"))
+    feeds.append(("The Kathmandu Post", "https://kathmandupost.com/rss"))
     # Add Google News RSS discovery alongside configured publishers.
     # Results are discovery leads, not independent verification.
     google_queries = [
@@ -59,6 +60,13 @@ def configured_feeds():
         ("Google News - BBC News Nepali", 'site:bbc.com/nepali OR "BBC News नेपाली" Nepal when:1d', "ne", "NP", "NP:ne"),
         ("Google News - eKantipur", 'site:ekantipur.com Nepal when:1d', "ne", "NP", "NP:ne"),
         ("Google News - Onlinekhabar", 'site:onlinekhabar.com Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - Setopati", 'site:setopati.com Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - Ratopati", 'site:ratopati.com Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - Nepal News", 'site:nepalnews.com Nepal when:1d', "en", "NP", "NP:en"),
+        ("Google News - Nagarik News", 'site:nagariknews.nagariknetwork.com Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - myRepublica", 'site:myrepublica.nagariknetwork.com Nepal when:1d', "en", "NP", "NP:en"),
+        ("Google News - The Himalayan Times", 'site:thehimalayantimes.com Nepal when:1d', "en", "NP", "NP:en"),
+        ("Google News - Annapurna Post", 'site:annapurnapost.com Nepal when:1d', "ne", "NP", "NP:ne"),
         ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:1d", "en", "NP", "NP:en"),
         ("Google News - World", "world breaking news when:1d", "en", "US", "US:en"),
         ("Google News - Football", "football soccer latest when:1d", "en", "GB", "GB:en"),
@@ -427,7 +435,7 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        "Eleven Google News RSS discovery feeds (Nepal English/Nepali, NEB Result & News, RONB, BBC Nepali, eKantipur, Onlinekhabar, cricket, world and football) run alongside configured publishers, plus the NEB Result & News publisher RSS feed. Facebook page references are discovery leads only; stories are rewritten from original reporting and corroborated where possible. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
+        " Eighteen Google News RSS discovery feeds cover Nepal English/Nepali, NEB Result & News, RONB, BBC Nepali, eKantipur, Onlinekhabar, Setopati, Ratopati, Nepal News, Nagarik, myRepublica, The Himalayan Times, Annapurna Post, cricket, world and football; direct publisher RSS feeds include NEB Result & News and The Kathmandu Post. Facebook page references are discovery leads only; stories are rewritten from original reporting and corroborated where possible. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
         "through Wikimedia Commons by default and checked with Groq vision; existing "
         "Google Custom Search credentials can optionally enable Google Images. Reference "
         "images are never republished. Publisher photos are used only when their article "
