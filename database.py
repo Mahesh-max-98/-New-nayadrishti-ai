@@ -132,6 +132,19 @@ def get_draft_for_image_retry(item_id):
         return dict(row)
 
 
+def replace_draft_image(item_id, image_data, image_status="fallback_graphic"):
+    """Replace a saved draft image explicitly, including an older fallback graphic."""
+    with connection() as db:
+        result = db.execute(
+            """UPDATE drafts
+               SET image_data=%s, image_status=%s, image_error=NULL,
+                   image_last_attempt=CURRENT_TIMESTAMP
+               WHERE item_id=%s""",
+            (image_data, image_status, item_id),
+        )
+        return result.rowcount > 0
+
+
 def get_draft_image(item_id):
     with connection() as db:
         row = db.execute(
