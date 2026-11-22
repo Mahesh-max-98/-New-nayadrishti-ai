@@ -84,6 +84,12 @@ The model supports up to four reference images. The adapter prepares reference i
 
 Keep all credentials in Render environment variables. Never commit real keys to GitHub.
 
+### Free image fallback
+
+When Cloudflare returns a temporary capacity or rate-limit error during a new text-only generation, the server makes one best-effort request to Pollinations' image endpoint using the FLUX alias. This fallback does not require adding another secret to Render. Availability and free access are controlled by Pollinations and can change; it is not an unlimited or guaranteed service.
+
+The fallback is intentionally not used for edits or requests with reference images, because the text-to-image endpoint cannot preserve the supplied image. If both providers are unavailable, the app reports an error and does not switch to a paid provider. Pollinations may rate-limit or require authentication in some circumstances.
+
 ### Cost and privacy limits
 
 Cloudflare documents a free Workers AI allocation of 10,000 neurons per day. The allocation is shared across Workers AI usage on the account and is not unlimited. Do not upgrade the Cloudflare account to a paid Workers plan for this project unless the account owner explicitly chooses to do so. This app does not switch to a paid provider or use a paid fallback.
