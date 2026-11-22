@@ -430,7 +430,7 @@ def image_studio_generate():
     article = str(payload.get("article") or "").strip()[:8000]
     summary = str(payload.get("summary") or "").strip()[:800]
     creative_prompt = str(payload.get("prompt") or "").strip()[:600]
-    style = str(payload.get("style") or "photorealistic").strip().lower()
+    style = str(payload.get("style") or "auto").strip().lower()
     if style not in ("photorealistic", "cinematic", "documentary", "3d", "illustration"):
         style = "photorealistic"
     if len(title) < 8:
@@ -494,6 +494,7 @@ def image_studio_status(job_id):
 
 # Standalone Image Studio API. The legacy news-image routes above remain unchanged.
 _STUDIO_STYLE_GUIDES = {
+    "auto": "Infer the intended visual medium from the user's wording. Follow it exactly: photograph requests must be photographs; illustration, cartoon, 3D, poster and graphic requests must use their requested medium. Never default every request to an illustration.",
     "photorealistic": "A natural, high-quality photograph. Do not render as an illustration, vector, painting, poster or 3D image.",
     "portrait": "A professional photographic portrait with natural skin texture, realistic facial proportions and balanced portrait lighting.",
     "cinematic": "Cinematic photography with deliberate framing, realistic lighting and rich but natural colour.",
@@ -551,7 +552,8 @@ def _read_reference_uploads(files):
 
 def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, height,
                        references=None, edit_source=None, parent_image_id=None,
-                       enhanced_prompt="", edit_instruction="", original_prompt=""):
+                       enhanced_prompt="", edit_instruction="", original_prompt="",
+                       conversation_context=""):
     with _image_studio_lock:
         _image_studio_jobs[job_id] = {"status": "running", "message": "Preparing your image request..."}
     try:
@@ -559,7 +561,8 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
             with _image_studio_lock:
                 _image_studio_jobs[job_id] = {"status": "running", "message": "Editing the previous image while preserving its subject..."}
             image_bytes = edit_studio_image(
-                edit_source, edit_instruction or prompt, width, height, references
+                edit_source, edit_instruction or prompt, width, height, references,
+                conversation_context=conversation_context,
             )
         else:
             image_bytes = generate_studio_image(
@@ -596,7 +599,7 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
 
 def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
                       references=None, edit_source=None, parent_image_id=None,
-                      enhanced_prompt="", edit_instruction="", original_prompt=""):
+                      enhanced_prompt="", edit_instruction="", original_prompt="", conversation_context=""):
     with _image_studio_lock:
         active = sum(1 for item in _image_studio_jobs.values() if item.get("status") in ("queued", "running"))
         if active >= 1:
@@ -606,7 +609,7 @@ def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
     thread = threading.Thread(
         target=_studio_job_worker,
         args=(job_id, owner_id, conversation_id, prompt, style, width, height,
-              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction, original_prompt),
+              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction, original_prompt, conversation_context),
         daemon=True,
     )
     thread.start()
@@ -672,7 +675,7 @@ def api_generate_image():
     if len(prompt) > 6000:
         return jsonify(error="The prompt is too long (maximum 6,000 characters)."), 400
     if style not in _STUDIO_STYLE_GUIDES:
-        style = "photorealistic"
+        style = "auto"
     width, height = _studio_dimensions(ratio)
     try:
         refs = _read_reference_uploads(request.files.getlist("references"))
@@ -715,6 +718,12 @@ def api_edit_image():
         return jsonify(error="The selected image does not belong to this conversation."), 403
     width, height = _studio_dimensions(payload.get("aspect_ratio") or "4:3")
     try:
+        prior = get_conversation(conversation_id, _studio_owner())
+        prior_context = "\\n".join(
+            f"{message['role']}: {message['content']}"
+            for message in (prior or {}).get("messages", [])[-8:]
+            if message.get("content")
+        )
         refs = []
         for upload_id in payload.get("upload_ids") or []:
             stored = get_upload(upload_id, _studio_owner())
@@ -725,6 +734,7 @@ def api_edit_image():
         job_id = _start_studio_job(
             _studio_owner(), conversation_id, instruction, "photorealistic", width, height,
             refs, bytes(source["image_data"]), image_id, edit_instruction=instruction,
+            conversation_context=prior_context,
         )
         if not job_id:
             return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
@@ -745,11 +755,17 @@ def api_image_variations():
         return jsonify(error="Image not found or not accessible."), 404
     instruction = str(payload.get("instruction") or "Create a subtle alternate version.").strip()
     width, height = _studio_dimensions(payload.get("aspect_ratio") or "4:3")
+    prior = get_conversation(source["conversation_id"], _studio_owner())
+    prior_context = "\\n".join(
+        f"{message['role']}: {message['content']}"
+        for message in (prior or {}).get("messages", [])[-8:]
+        if message.get("content")
+    )
     add_message(source["conversation_id"], _studio_owner(), "user", instruction)
     job_id = _start_studio_job(
         _studio_owner(), source["conversation_id"], instruction, "photorealistic",
         width, height, [], bytes(source["image_data"]), image_id,
-        edit_instruction=instruction,
+        edit_instruction=instruction, conversation_context=prior_context,
     )
     if not job_id:
         return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
