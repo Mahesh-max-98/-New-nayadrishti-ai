@@ -144,6 +144,29 @@ def _visual_direction(title, description, summary, visual_brief=""):
     headline = re.sub(r"[\u2010-\u2015\u2212]", "-", headline)
     details = re.sub(r"[\u2010-\u2015\u2212]", "-", details)
 
+    # Detect the kind of event, not only the sport/category. This prevents
+    # transfer, signing, return and appointment stories from becoming fake match scenes.
+    if any(term in headline for term in ("cricket", "imam-ul-haq", "imam ul haq", "pakistan opener", "pakistani opener", "yorkshire", "county cricket")):
+        if any(term in headline for term in ("return", "returns", "back to", "rejoins", "join", "joins", "sign", "signs", "deal", "2027")):
+            return (
+                "CRICKET PLAYER RETURN / SIGNING STORY: depict a quiet, authentic "
+                "English county-cricket ground with a well-kept cricket pitch, pavilion, "
+                "boundary rope and a single cricket bat with red ball near the pavilion. "
+                "The visual communicates a player's return to county cricket, NOT a live "
+                "match. No identifiable player, no invented action, no scoreboard, no "
+                "team crest, no hockey equipment, no unrelated sport."
+            )
+
+    if any(term in headline for term in ("football", "soccer", "premier league", "champions league")) and any(
+        term in headline for term in ("transfer", "signs", "joins", "loan", "deal", "2027")
+    ):
+        return (
+            "FOOTBALL TRANSFER STORY: depict a professional football stadium exterior "
+            "or empty pitch with one football in the foreground, suggesting a club move. "
+            "Do not show a fabricated match, identifiable player, shirt number, club crest "
+            "or transfer announcement text."
+        )
+
     # Headline matches matter most. Supporting text can clarify a story, but
     # generic words such as "result", "team", or "news" must not decide the image.
     categories = [
@@ -246,45 +269,39 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     # Put story facts before photographic styling. The 2,048-character API limit
     # must never cut off the actual event and leave only generic camera language.
     prompt = (
-        "NEWS EDITORIAL RECONSTRUCTION — NOT A REAL NEWS PHOTOGRAPH. "
-        "Create one exceptionally natural, believable, photorealistic editorial "
-        "illustration. ACCURACY FIRST: depict only the central subject and event "
-        "explicitly stated in the HEADLINE and supported by SOURCE FACTS. Do not "
-        "turn a preview into a result, rumour into fact, proposal into a decision, "
-        "transfer into match action, announcement into a staged event, or allegation "
-        "into proven guilt. Do not infer what happened outside the supplied facts. "
-        "If the exact scene, people, place, timing or action is not confirmed, do not "
-        "recreate it; use a restrained symbolic or environmental visual of the "
-        "confirmed subject instead. Never invent or imitate a real person's face. "
-        "No fabricated names, identifiable people, uniforms, club/company logos, "
-        "flags, signs, readable text, numbers, scores, documents, quotes, locations, "
-        "crowd size, damage, casualties, injuries, weapons, emergency scenes or "
-        "dramatic actions. No graphic, sensational or partisan framing. "
-        "SCENE: one clear main subject, correct object type and scale, physically "
-        "plausible arrangement, accurate sport/equipment/infrastructure when relevant, "
-        "natural background details that do not imply unreported facts. Match the "
-        "visual category to the event, not merely a broad keyword. For cricket, "
-        "show cricket-only equipment such as bat, ball, stumps and a cricket pitch; "
-        "never show hockey sticks, pucks, ice rinks or hockey goals. For hockey, do "
-        "not show cricket bats, wickets or cricket pitches. No unrelated props, no "
-        "food or tea, no mixed sports, no collage, no split-screen. "
-        "PHOTO REALISM: professional documentary-editorial photography aesthetic; "
-        "natural available light, realistic exposure and white balance, physically "
-        "consistent shadows, true-to-life materials and textures, subtle fine grain, "
-        "credible lens perspective, restrained depth of field, realistic atmospheric "
-        "detail, balanced contrast, natural colour, sharp but not oversharpened. "
-        "Avoid CGI, 3D render, illustration brush strokes, plastic/waxy surfaces, "
-        "over-smooth skin, distorted anatomy, extra fingers, duplicated objects, "
-        "impossible geometry, oversaturation, cinematic fantasy lighting and fake "
-        "HDR. Keep the scene calm, clear, contextually accurate and non-deceptive. "
-        "COMPOSITION: landscape 4:3, strong readable subject, uncluttered frame, "
-        "professional editorial crop, sufficient clean lower space for the news-card "
-        "overlay. No text, letters, watermark or fake camera/date stamp. "
-        "HEADLINE (primary facts): " + headline + " "
-        "SOURCE FACTS (only evidence to depict): " + facts + " "
-        "VISUAL BRIEF: " + brief + " "
-        "CATEGORY DIRECTION: " + direction[:260] + " "
-        "CAPTION CONTEXT: " + post
+        "NEWS EDITORIAL IMAGE — NOT A REAL NEWS PHOTOGRAPH. Generate the photograph "
+        "BACKGROUND ONLY. Do not write, draw, print, spell, or render the headline, "
+        "caption, letters, words, numbers, logos, signs, watermarks or typography anywhere. "
+        "The NayaDrishti app adds the headline separately after image generation. "
+        "MOST IMPORTANT: understand the exact event in the headline, then create a "
+        "single concrete scene that communicates THAT event at first glance. Do not "
+        "make a generic image for the broad topic. The scene must agree with the "
+        "headline and source facts; if they do not support a literal scene, use a "
+        "specific but neutral symbolic scene. "
+        "FACT SAFETY: never turn a rumour into fact, preview into result, proposal into "
+        "decision, transfer into match action, or allegation into proven guilt. Never "
+        "invent a real person's face, event, location, uniform, club/company logo, "
+        "flag, score, statistic, document, casualty, damage or dramatic action. "
+        "SPORT ACCURACY: cricket means cricket pitch, bat, ball and stumps only; "
+        "football means association-football pitch and ball; hockey means the correct "
+        "hockey field/rink and hockey stick. Never mix sports or use unrelated props. "
+        "For a player transfer, return, signing or contract story, show a relevant "
+        "stadium, pavilion or symbolic equipment scene, NOT an invented live match. "
+        "For a match report, show match context only when supported by the facts. "
+        "No food, tea, random office meeting, generic technology background or unrelated "
+        "stock-photo scene. One subject, one coherent scene, no collage or split-screen. "
+        "Photorealistic documentary-editorial photography aesthetic, natural available "
+        "light, physically correct shadows, realistic materials, natural colours, "
+        "credible lens perspective, subtle grain, balanced exposure, realistic scale. "
+        "Avoid CGI, 3D render, waxy surfaces, distorted anatomy, duplicated objects, "
+        "fantasy lighting, oversaturation and fake HDR. Landscape 4:3 composition, "
+        "clear subject, uncluttered frame, clean lower space for the separately added "
+        "news-card headline. "
+        "HEADLINE — describe this exact story visually: " + headline + " "
+        "VERIFIED SOURCE DETAILS — use only these facts: " + facts + " "
+        "STORY CONTEXT: " + post + " "
+        "SPECIFIC SCENE DIRECTION: " + direction[:420] + " "
+        "ADDITIONAL VISUAL CONTEXT (not independent proof): " + brief
     )
     return prompt[:2048]
 
