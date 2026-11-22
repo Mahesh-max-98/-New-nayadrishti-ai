@@ -13,17 +13,27 @@ from database import init_db, get_drafts, get_draft_image, replace_draft_image
 from image_generator import create_fallback_news_graphic, generate_news_image
 from news_monitor import check_feeds, configured_feeds, fetch_article_text
 from google_research import research_story
+from image_provider import generate_image as generate_studio_image, ImageProviderError
+from image_editor import edit_image as edit_studio_image, create_variation
+from prompt_enhancer import enhance_prompt, PromptEnhancementError
+from image_history import (
+    init_image_history_db, create_conversation, add_message, save_image_version,
+    get_image, list_images, list_conversations, get_conversation, delete_image,
+    delete_conversation, save_upload, get_upload, delete_upload,
+)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
 if not app.secret_key:
     raise RuntimeError("FLASK_SECRET_KEY is required. Set a long, random secret in Render environment variables.")
+app.config["MAX_CONTENT_LENGTH"] = 45 * 1024 * 1024
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "true").lower() == "true",
 )
 init_db()
+init_image_history_db()
 
 # Keep feed checks out of HTTP requests and prevent scheduled/manual overlap.
 _check_lock = threading.Lock()
@@ -479,6 +489,333 @@ def image_studio_status(job_id):
         if not job:
             return jsonify(error="This image job is no longer available. Start a new request."), 404
         return jsonify(job)
+
+
+
+# Standalone Image Studio API. The legacy news-image routes above remain unchanged.
+_STUDIO_STYLE_GUIDES = {
+    "photorealistic": "A natural, high-quality photograph. Do not render as an illustration, vector, painting, poster or 3D image.",
+    "portrait": "A professional photographic portrait with natural skin texture, realistic facial proportions and balanced portrait lighting.",
+    "cinematic": "Cinematic photography with deliberate framing, realistic lighting and rich but natural colour.",
+    "editorial": "A clear editorial visual. Use a photograph unless the prompt explicitly asks for an illustration or graphic.",
+    "digital-art": "Polished digital art with intentional artistic rendering.",
+    "illustration": "A detailed, clearly illustrated artwork; do not imitate a documentary photograph.",
+    "cartoon": "A stylized cartoon image with expressive, simplified forms.",
+    "3d": "A high-quality 3D render with physically plausible materials, lighting and perspective.",
+    "product": "Professional commercial product photography with controlled studio lighting and accurate product proportions.",
+    "architecture": "Professional architectural photography with accurate perspective, realistic materials and natural light.",
+    "landscape": "High-quality landscape photography with realistic atmosphere, natural colour and detailed terrain.",
+    "poster": "A professionally composed poster design. Include text only when the user supplies the exact wording.",
+    "social-graphic": "A polished social-media graphic. Include text only when the user supplies the exact wording.",
+    "logo": "A clean, original logo or vector-style graphic with simple, intentional shapes."
+}
+_STUDIO_RATIOS = {
+    "1:1": (1024, 1024), "3:2": (1152, 768), "2:3": (768, 1152),
+    "4:3": (1024, 768), "3:4": (768, 1024), "16:9": (1280, 720),
+    "9:16": (720, 1280),
+}
+
+
+def _studio_dimensions(value):
+    ratio = str(value or "4:3").strip()
+    return _STUDIO_RATIOS.get(ratio, _STUDIO_RATIOS["4:3"])
+
+
+def _studio_prompt(prompt, style):
+    guide = _STUDIO_STYLE_GUIDES.get(style, _STUDIO_STYLE_GUIDES["photorealistic"])
+    return (
+        str(prompt).strip() + "\\n\\nVisual direction: " + guide
+        + " Preserve the user's requested subject, action, setting and constraints. "
+        + "Do not add captions, watermarks, logos or text unless explicitly requested."
+    )
+
+
+def _studio_owner():
+    # The existing application has one admin-password account, not multi-user auth.
+    return "admin"
+
+
+def _read_reference_uploads(files):
+    references = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        if len(references) >= 4:
+            raise ValueError("A maximum of four reference images is supported.")
+        data = file.read(10 * 1024 * 1024 + 1)
+        if len(data) > 10 * 1024 * 1024:
+            raise ValueError("Each reference image must be 10 MB or smaller.")
+        references.append(data)
+    return references
+
+
+def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, height,
+                       references=None, edit_source=None, parent_image_id=None,
+                       enhanced_prompt="", edit_instruction=""):
+    with _image_studio_lock:
+        _image_studio_jobs[job_id] = {"status": "running", "message": "Preparing your image request..."}
+    try:
+        if edit_source is not None:
+            with _image_studio_lock:
+                _image_studio_jobs[job_id] = {"status": "running", "message": "Editing the previous image while preserving its subject..."}
+            image_bytes = edit_studio_image(
+                edit_source, edit_instruction or prompt, width, height, references
+            )
+        else:
+            image_bytes = generate_studio_image(
+                _studio_prompt(prompt, style), references, width, height
+            )
+        saved = save_image_version(
+            conversation_id=conversation_id,
+            user_id=owner_id,
+            image_bytes=image_bytes,
+            original_prompt=prompt,
+            enhanced_prompt=enhanced_prompt,
+            edit_instruction=edit_instruction,
+            parent_image_id=parent_image_id,
+            model_name=os.getenv("IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-9b"),
+        )
+        add_message(
+            conversation_id, owner_id, "assistant",
+            "Image created. You can continue editing this version.", saved["image_id"]
+        )
+        with _image_studio_lock:
+            _image_studio_jobs[job_id] = {
+                "status": "done", "message": "Image created and saved to your history.",
+                "image_id": saved["image_id"], "conversation_id": conversation_id,
+                "version_number": saved["version_number"],
+                "width": saved["width"], "height": saved["height"],
+                "mime_type": saved["mime_type"],
+            }
+    except Exception as exc:
+        app.logger.exception("Image Studio job failed: %s", job_id)
+        message = str(exc)[:300] if isinstance(exc, (ImageProviderError, ValueError)) else "Image generation failed. Please retry."
+        with _image_studio_lock:
+            _image_studio_jobs[job_id] = {"status": "error", "error": message}
+
+
+def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
+                      references=None, edit_source=None, parent_image_id=None,
+                      enhanced_prompt="", edit_instruction=""):
+    with _image_studio_lock:
+        active = sum(1 for item in _image_studio_jobs.values() if item.get("status") in ("queued", "running"))
+        if active >= 1:
+            return None
+        job_id = uuid.uuid4().hex
+        _image_studio_jobs[job_id] = {"status": "queued", "message": "Image request queued..."}
+    thread = threading.Thread(
+        target=_studio_job_worker,
+        args=(job_id, owner_id, conversation_id, prompt, style, width, height,
+              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction),
+        daemon=True,
+    )
+    thread.start()
+    return job_id
+
+
+@app.post("/api/images/enhance-prompt")
+@login_required
+def api_enhance_image_prompt():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = enhance_prompt(
+            payload.get("prompt"), payload.get("style", "auto"), payload.get("language", "auto")
+        )
+        return jsonify(result)
+    except PromptEnhancementError as exc:
+        return jsonify(error=str(exc)), 503
+
+
+@app.post("/api/images/upload")
+@login_required
+def api_upload_image():
+    file = request.files.get("image")
+    if not file or not file.filename:
+        return jsonify(error="Choose a JPG, PNG or WebP image to upload."), 400
+    try:
+        data = file.read(10 * 1024 * 1024 + 1)
+        result = save_upload(_studio_owner(), file.filename, file.mimetype, data)
+        return jsonify(result), 201
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get("/api/images/uploads/<upload_id>")
+@login_required
+def api_get_upload(upload_id):
+    upload = get_upload(upload_id, _studio_owner())
+    if not upload:
+        return jsonify(error="Reference upload not found."), 404
+    return send_file(io.BytesIO(bytes(upload["image_data"])),
+                     mimetype=upload["mime_type"], as_attachment=False, max_age=0)
+
+
+@app.delete("/api/images/uploads/<upload_id>")
+@login_required
+def api_delete_upload(upload_id):
+    if not delete_upload(upload_id, _studio_owner()):
+        return jsonify(error="Reference upload not found."), 404
+    return jsonify(success=True)
+
+
+@app.post("/api/images/generate")
+@login_required
+def api_generate_image():
+    payload = request.get_json(silent=True) if request.is_json else request.form
+    payload = payload or {}
+    prompt = str(payload.get("prompt") or "").strip()
+    style = str(payload.get("style") or "photorealistic").strip().lower()
+    ratio = str(payload.get("aspect_ratio") or "4:3").strip()
+    enhanced = str(payload.get("enhanced_prompt") or "").strip()
+    if not prompt:
+        return jsonify(error="Enter a prompt describing the image you want."), 400
+    if len(prompt) > 6000:
+        return jsonify(error="The prompt is too long (maximum 6,000 characters)."), 400
+    if style not in _STUDIO_STYLE_GUIDES:
+        style = "photorealistic"
+    width, height = _studio_dimensions(ratio)
+    try:
+        refs = _read_reference_uploads(request.files.getlist("references"))
+        upload_ids = request.form.getlist("upload_ids") if not request.is_json else []
+        for upload_id in upload_ids[:4 - len(refs)]:
+            stored = get_upload(upload_id, _studio_owner())
+            if not stored:
+                return jsonify(error="A selected reference upload is missing or not accessible."), 404
+            refs.append(bytes(stored["image_data"]))
+        conversation_id = str(payload.get("conversation_id") or "").strip()
+        if not conversation_id:
+            conversation_id = create_conversation(_studio_owner(), prompt[:100])
+        elif not get_conversation(conversation_id, _studio_owner()):
+            return jsonify(error="Conversation not found."), 404
+        add_message(conversation_id, _studio_owner(), "user", prompt)
+        job_id = _start_studio_job(
+            _studio_owner(), conversation_id, prompt, style, width, height,
+            refs, enhanced_prompt=enhanced,
+        )
+        if not job_id:
+            return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
+        return jsonify(job_id=job_id, conversation_id=conversation_id, status="queued"), 202
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.post("/api/images/edit")
+@login_required
+def api_edit_image():
+    payload = request.get_json(silent=True) or {}
+    image_id = str(payload.get("image_id") or "").strip()
+    instruction = str(payload.get("instruction") or "").strip()
+    if not image_id or not instruction:
+        return jsonify(error="Select an image and describe the edit you want."), 400
+    source = get_image(image_id, _studio_owner())
+    if not source:
+        return jsonify(error="Image not found or not accessible."), 404
+    conversation_id = str(payload.get("conversation_id") or source["conversation_id"])
+    if conversation_id != source["conversation_id"]:
+        return jsonify(error="The selected image does not belong to this conversation."), 403
+    width, height = _studio_dimensions(payload.get("aspect_ratio") or "4:3")
+    try:
+        refs = []
+        for upload_id in payload.get("upload_ids") or []:
+            stored = get_upload(upload_id, _studio_owner())
+            if not stored:
+                return jsonify(error="A selected reference upload is missing or not accessible."), 404
+            refs.append(bytes(stored["image_data"]))
+        add_message(conversation_id, _studio_owner(), "user", instruction)
+        job_id = _start_studio_job(
+            _studio_owner(), conversation_id, instruction, "photorealistic", width, height,
+            refs, bytes(source["image_data"]), image_id, edit_instruction=instruction,
+        )
+        if not job_id:
+            return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
+        return jsonify(job_id=job_id, conversation_id=conversation_id, parent_image_id=image_id, status="queued"), 202
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.post("/api/images/variations")
+@login_required
+def api_image_variations():
+    payload = request.get_json(silent=True) or {}
+    image_id = str(payload.get("image_id") or "").strip()
+    if not image_id:
+        return jsonify(error="Select an image first."), 400
+    source = get_image(image_id, _studio_owner())
+    if not source:
+        return jsonify(error="Image not found or not accessible."), 404
+    instruction = str(payload.get("instruction") or "Create a subtle alternate version.").strip()
+    width, height = _studio_dimensions(payload.get("aspect_ratio") or "4:3")
+    add_message(source["conversation_id"], _studio_owner(), "user", instruction)
+    job_id = _start_studio_job(
+        _studio_owner(), source["conversation_id"], instruction, "photorealistic",
+        width, height, [], bytes(source["image_data"]), image_id,
+        edit_instruction=instruction,
+    )
+    if not job_id:
+        return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
+    return jsonify(job_id=job_id, conversation_id=source["conversation_id"], status="queued"), 202
+
+
+@app.get("/api/images/jobs/<job_id>")
+@login_required
+def api_image_job_status(job_id):
+    with _image_studio_lock:
+        job = _image_studio_jobs.get(job_id)
+        if not job:
+            return jsonify(error="Image job not found. It may have expired after a server restart."), 404
+        return jsonify(job)
+
+
+@app.get("/api/images/history")
+@login_required
+def api_image_history():
+    return jsonify(conversations=list_conversations(_studio_owner()),
+                   images=list_images(_studio_owner()))
+
+
+@app.get("/api/images/conversations/<conversation_id>")
+@login_required
+def api_get_image_conversation(conversation_id):
+    data = get_conversation(conversation_id, _studio_owner())
+    if not data:
+        return jsonify(error="Conversation not found."), 404
+    return jsonify(data)
+
+
+@app.delete("/api/images/conversations/<conversation_id>")
+@login_required
+def api_delete_image_conversation(conversation_id):
+    if not delete_conversation(conversation_id, _studio_owner()):
+        return jsonify(error="Conversation not found."), 404
+    return jsonify(success=True)
+
+
+@app.get("/api/images/<image_id>")
+@login_required
+def api_get_image(image_id):
+    data = get_image(image_id, _studio_owner())
+    if not data:
+        return jsonify(error="Image not found."), 404
+    data.pop("image_data", None)
+    return jsonify(data)
+
+
+@app.get("/api/images/<image_id>/content")
+@login_required
+def api_get_image_content(image_id):
+    data = get_image(image_id, _studio_owner())
+    if not data:
+        return jsonify(error="Image not found."), 404
+    return send_file(io.BytesIO(bytes(data["image_data"])), mimetype=data["mime_type"],
+                     as_attachment=False, max_age=0)
+
+
+@app.delete("/api/images/<image_id>")
+@login_required
+def api_delete_image(image_id):
+    if not delete_image(image_id, _studio_owner()):
+        return jsonify(error="Image not found."), 404
+    return jsonify(success=True)
 
 
 if __name__ == "__main__":
