@@ -274,7 +274,7 @@ def _research_visual_plan(title, description, summary, research_context=""):
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a compact, story-specific prompt with a generous provider-limit margin."""
-    clean = lambda value, limit: re.sub(r"\\s+", " ", str(value or "").strip())[:limit]
+    clean = lambda value, limit: re.sub(r"\s+", " ", str(value or "").strip())[:limit]
     headline = clean(title, 220)
     facts = clean(description, 260)
     post = clean(summary, 120)
