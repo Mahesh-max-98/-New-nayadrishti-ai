@@ -123,7 +123,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Check interval: <strong>{{ check_interval }} seconds</strong></p>
 <p class="small">Automatic checks run only while this free Render web service is awake. GitHub keep-awake pings are best-effort; this is not guaranteed 24/7 monitoring.</p>
 <div id="monitoring-status" class="status">Loading latest monitoring status...</div>
-<p class="small">Uses an approved publisher photo when its article and image domains are allowlisted; otherwise it creates a topic-specific AI illustration. New cards include a redesigned headline and NayaDrishti branding. Facebook auto-publishing remains off for testing.</p>
+<p class="small">Hybrid image mode: permitted publisher photo first, free AI-generated editorial illustration second, and a clearly labelled NayaDrishti graphic if image generation is unavailable. AI images are illustrations, not documentary photographs. Facebook auto-publishing remains off for testing.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
 <section class="panel"><h2>Publishing status</h2>
