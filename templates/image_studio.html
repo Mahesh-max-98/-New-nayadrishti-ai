@@ -199,7 +199,7 @@ async function sendPrompt(){
   if(currentImageId){
    r=await fetch('/api/images/edit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_id:currentImageId,instruction:effective,conversation_id:conversationId,aspect_ratio:$('ratio').value,upload_ids:uploaded.map(x=>x.upload_id)})});
   }else{
-   const fd=new FormData();fd.append('prompt',effective);fd.append('enhanced_prompt',improved);fd.append('style',$('style').value);fd.append('aspect_ratio',$('ratio').value);if(conversationId)fd.append('conversation_id',conversationId);uploaded.forEach(x=>fd.append('upload_ids',x.upload_id));
+   const fd=new FormData();fd.append('prompt',original);fd.append('enhanced_prompt',improved);fd.append('style',$('style').value);fd.append('aspect_ratio',$('ratio').value);if(conversationId)fd.append('conversation_id',conversationId);uploaded.forEach(x=>fd.append('upload_ids',x.upload_id));
    r=await fetch('/api/images/generate',{method:'POST',body:fd});
   }
   const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not start image generation.');
