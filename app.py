@@ -133,7 +133,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
 {% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
-{% if d.image_status == 'fallback_graphic' %}<button type="button" onclick="refreshGraphic('{{ d.item_id }}', this)">Refresh graphic design</button><span class="small">Rebuilds this saved graphic using the latest design without using AI credits.</span>{% elif d.image_status == 'ai_illustration' %}<button type="button" onclick="refreshStoryImage('{{ d.item_id }}', this)">Regenerate story image</button><span class="small">Creates a new image using the corrected story-specific visual direction.</span>{% endif %}
+<button type="button" onclick="refreshStoryImage('{{ d.item_id }}', this)">Regenerate story-matched image</button><span class="small">Replaces this saved image with a new image generated from the article headline and facts.</span>
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
 <div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
@@ -156,7 +156,7 @@ async function refreshStoryImage(itemId,button){
   const data=await response.json();
   if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
   location.reload();
- }catch(error){button.disabled=false;button.textContent='Regenerate story image';alert('Could not regenerate image: '+error.message);}
+ }catch(error){button.disabled=false;button.textContent='Regenerate story-matched image';alert('Could not regenerate image: '+error.message);}
 }
 async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
 b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News and images are being processed in the background.';
@@ -251,8 +251,6 @@ def refresh_story_image(item_id):
     draft = next((item for item in get_drafts(limit=100) if item["item_id"] == item_id), None)
     if not draft:
         return jsonify(error="Draft not found."), 404
-    if draft.get("image_status") != "ai_illustration":
-        return jsonify(error="Only AI illustration drafts can be regenerated here."), 409
     try:
         article_text = fetch_article_text(draft.get("url") or "", draft.get("summary") or "")
         image = generate_news_image(
