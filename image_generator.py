@@ -413,18 +413,20 @@ def create_fallback_news_graphic(title, summary=""):
     low = (headline + " " + (summary or "")).lower()
 
     # Distinct, restrained palettes by beat: colourful without turning every post blue.
+    # Brighter, multi-colour editorial palettes. Each beat gets a distinct
+    # primary + secondary + paper combination while keeping headline contrast high.
     themes = {
-        "education": ((249, 241, 220), (42, 57, 48), (184, 91, 49), (232, 190, 105), (255, 250, 238)),
-        "cricket": ((239, 242, 218), (35, 58, 44), (181, 65, 49), (220, 166, 76), (250, 247, 230)),
-        "football": ((247, 231, 219), (53, 43, 39), (178, 66, 53), (218, 137, 76), (255, 247, 236)),
-        "weather": ((231, 239, 231), (43, 59, 53), (71, 123, 103), (210, 160, 86), (249, 248, 235)),
-        "politics": ((242, 231, 218), (48, 45, 43), (151, 67, 53), (196, 145, 83), (255, 248, 237)),
-        "health": ((235, 241, 224), (43, 61, 51), (71, 128, 104), (205, 158, 91), (250, 249, 235)),
-        "transport": ((242, 234, 218), (48, 53, 53), (181, 92, 48), (210, 164, 85), (255, 249, 237)),
-        "technology": ((235, 231, 219), (43, 48, 54), (126, 91, 133), (205, 155, 87), (250, 247, 237)),
-        "business": ((244, 235, 216), (51, 53, 43), (137, 105, 55), (204, 151, 79), (255, 250, 238)),
-        "entertainment": ((246, 229, 220), (57, 43, 48), (164, 77, 105), (218, 151, 91), (255, 247, 238)),
-        "general": ((239, 232, 216), (48, 49, 44), (157, 83, 55), (207, 157, 82), (255, 249, 237)),
+        "education": ((230, 239, 255), (28, 43, 72), (239, 105, 54), (55, 164, 145), (255, 252, 244)),
+        "cricket": ((224, 245, 232), (24, 55, 43), (226, 75, 65), (244, 183, 54), (255, 252, 239)),
+        "football": ((242, 230, 255), (48, 35, 72), (232, 75, 117), (107, 190, 93), (255, 251, 245)),
+        "weather": ((222, 244, 250), (25, 57, 72), (36, 143, 190), (246, 177, 58), (255, 253, 245)),
+        "politics": ((250, 232, 224), (58, 39, 43), (190, 62, 73), (48, 137, 128), (255, 251, 245)),
+        "health": ((228, 246, 237), (28, 58, 52), (35, 151, 126), (241, 137, 83), (255, 253, 246)),
+        "transport": ((255, 239, 218), (56, 48, 39), (230, 112, 48), (48, 137, 177), (255, 252, 244)),
+        "technology": ((235, 231, 255), (39, 39, 75), (112, 83, 210), (40, 174, 180), (255, 252, 248)),
+        "business": ((250, 241, 216), (53, 49, 35), (190, 133, 39), (44, 137, 111), (255, 253, 245)),
+        "entertainment": ((255, 230, 239), (63, 37, 53), (213, 68, 130), (111, 91, 201), (255, 251, 247)),
+        "general": ((235, 239, 246), (39, 48, 65), (220, 91, 64), (53, 139, 166), (255, 252, 246)),
     }
     if any(k in low for k in ("neb", "result", "exam", "education", "school", "student", "परीक्षा", "नतिजा", "शिक्षा", "विद्यार्थी", "कक्षा")):
         category = "education"
@@ -453,8 +455,12 @@ def create_fallback_news_graphic(title, summary=""):
     canvas = Image.new("RGB", (1200, 900), bg)
     d = ImageDraw.Draw(canvas)
 
-    # Editorial magazine layout: warm paper, oversized colour fields, restrained details.
+    # Editorial magazine layout with a layered colour ribbon and lively corner shapes.
     d.rectangle((0, 0, 1200, 18), fill=accent)
+    d.rectangle((0, 18, 390, 27), fill=secondary)
+    d.rectangle((390, 18, 690, 27), fill=ink)
+    d.rectangle((690, 18, 930, 27), fill=accent)
+    d.rectangle((930, 18, 1200, 27), fill=secondary)
     d.ellipse((785, -180, 1320, 355), fill=secondary)
     d.ellipse((905, -105, 1285, 275), fill=bg)
     d.ellipse((1000, 65, 1140, 205), fill=accent)
@@ -491,7 +497,12 @@ def create_fallback_news_graphic(title, summary=""):
     d.text((94, 132), "नयाँ दृष्टि, नयाँ खबर।", font=kicker_font, fill=accent)
     d.rounded_rectangle((92, 180, 245, 188), radius=4, fill=accent)
     d.rounded_rectangle((92, 220, 320, 266), radius=18, fill=ink)
-    d.text((112, 230), category.upper() + "  /  NEWS", font=small_font, fill=paper)
+    d.rounded_rectangle((92, 220, 104, 266), radius=6, fill=secondary)
+    d.text((118, 230), category.upper() + "  /  NEWS", font=small_font, fill=paper)
+    # Small colour markers make the graphic feel intentionally art-directed.
+    d.ellipse((345, 231, 369, 255), fill=accent)
+    d.ellipse((378, 231, 402, 255), fill=secondary)
+    d.ellipse((411, 231, 435, 255), fill=ink)
 
     # Large topic emblem, drawn as a clean editorial symbol rather than fake reportage.
     cx, cy = 875, 430
