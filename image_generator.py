@@ -7,7 +7,7 @@ import time
 import requests
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
-MODEL = "@cf/black-forest-labs/flux-1-schnell"
+MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
 API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -569,7 +569,7 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     last_error = None
 
     # If Cloudflare has already reported its daily quota exhausted, skip it.
-    if os.getenv("IMAGE_GENERATION_PROVIDER", "free").strip().lower() in ("free", "ai_horde", "horde") or time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+    if os.getenv("IMAGE_GENERATION_PROVIDER", "cloudflare").strip().lower() in ("ai_horde", "horde") or time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
         # Free-only mode deliberately bypasses Cloudflare so no paid provider is called.
         raw = try_ai_horde()
     else:
@@ -587,8 +587,12 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
                             "Content-Type": "application/json",
                             "Accept": "application/json, image/jpeg, image/png",
                         },
-                        json={"prompt": prompt, "steps": 4},
-                        timeout=(20, 150),
+                        files={
+                            "prompt": (None, prompt),
+                            "width": (None, "1024"),
+                            "height": (None, "768"),
+                        },
+                        timeout=(25, 180),
                     )
                     if not response.ok:
                         detail = response.text[:500].replace(chr(10), " ")
@@ -674,12 +678,13 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     visual_plan = researched_plan or visual_brief or _visual_direction(title, description, summary)
     matched, review_note = _check_visual_match(raw, title, description, visual_plan)
     if not matched and str(review_note).startswith("QA_UNAVAILABLE:"):
-        # Do not disguise a generic local graphic as a completed AI news image.
-        # If visual verification is unavailable, fail safely and let the user retry.
-        raise RuntimeError(
-            "AI image was generated but could not be quality-checked because the free "
-            "vision reviewer is temporarily rate-limited. No unverified image was approved. "
-            "Reviewer details: " + str(review_note)[len("QA_UNAVAILABLE:"):][:220]
+        # Image Studio is a signed-in human-review preview, not an auto-publishing path.
+        # Show the actual generated artwork when automated review is unavailable,
+        # but log that it remains unverified. Facebook auto-publishing stays separate.
+        import logging
+        logging.getLogger("nayadrishti.images").warning(
+            "Showing generated image as UNVERIFIED PREVIEW; automated QA unavailable: %s",
+            str(review_note)[:260],
         )
     if not matched:
         if _qa_retry < 1:
@@ -698,7 +703,21 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
         image = Image.open(io.BytesIO(raw)).convert("RGB")
         if image.width < 256 or image.height < 256:
             raise ValueError(f"Generated image is unexpectedly small: {image.size}")
-        return _compose_news_card(image, "", summary, ai_generated=True)
+        # Deliver clean AI artwork, not a poster/template: no text,
+        # footer, badge or overlay. Keep a 4:3 composition for the preview.
+        target_ratio = 4 / 3
+        if image.width / image.height > target_ratio:
+            nw = int(image.height * target_ratio)
+            left = (image.width - nw) // 2
+            image = image.crop((left, 0, left + nw, image.height))
+        else:
+            nh = int(image.width / target_ratio)
+            top = max(0, (image.height - nh) // 2)
+            image = image.crop((0, top, image.width, top + nh))
+        image = image.resize((1200, 900), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=95, optimize=True)
+        return output.getvalue()
     except Exception as exc:
         raise RuntimeError(
             f"Generated image could not be decoded or branded: {type(exc).__name__}: {exc}"
