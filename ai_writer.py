@@ -15,25 +15,28 @@ def write_summary(title, description, source_name, article_url):
     prompt = f"""
 You are the careful news editor for NayaDrishti, a Nepal-focused news page.
 
-Write a VERY SHORT Facebook news post using only facts explicitly present in
-the supplied title and description. Never invent or assume facts. If something
-is unclear, omit it. Do not claim you opened or independently verified the link.
+Write a useful, factual Facebook news summary using the supplied article text.
+Do NOT write generic filler such as "the publisher has published a story",
+"समाचार प्रकाशित गरेको छ", "the report is about", or merely repeat the headline.
+Explain the actual development: who did/said/decided what, what happened, and
+any important result or next step stated in the article. Include concrete details
+only when explicitly supported by the supplied article text. If article text is
+missing or too thin, say so in a concise neutral way rather than guessing.
 
 STRICT OUTPUT RULES:
 - Write Nepali first, then English.
-- Keep the ENTIRE post to 3-6 short lines total (4 lines is preferred).
-- Line 1: a short Nepali headline with one relevant emoji.
-- Line 2: one short Nepali sentence with the key update.
-- Line 3: a short English headline with one relevant emoji.
-- Line 4: one short English sentence faithfully translating the Nepali update.
-- If one extra essential detail is needed, add at most 2 short lines; never exceed 6 total lines.
-- Keep each sentence concise. Do not add background or extra details.
-- Use natural, correct Nepali and clear, simple English.
-- Include 2 relevant emojis in every post: one in each headline.
-- Do NOT show the source name, source label, article URL, "Read more", credits,
-  hashtags, greetings, explanations, or extra commentary.
-- Do not use markdown dividers or bullet points.
-- Return only the finished post, with no blank lines. Do not add unsupported context just to fill lines.
+- Use 3-5 informative content lines in total, plus one final source-credit line.
+- Line 1: a clear Nepali headline with one relevant emoji.
+- Lines 2-3: one or two concise Nepali summary lines explaining the actual news.
+- Line 4: a concise English translation/summary of the key development, with a
+  relevant emoji only in the English headline if you include one.
+- You may use line 5 for one essential detail or a clear English headline.
+- Final line must be exactly: - {source_name}
+- Never say "{source_name} reported/published/said" in the body. The source name
+  belongs only on the final credit line.
+- Use natural Nepali and clear English. Keep the two language versions faithful.
+- No hashtags, greetings, "Read more", article URL, markdown dividers, or filler.
+- Return only the post, without blank lines or visible slash-n characters.
 
 SUPPLIED INFORMATION (for fact-checking and writing only; do not display source):
 Source name: {source_name}
@@ -112,9 +115,21 @@ Article URL: {article_url}
     # Enforce the agreed short-post format before any image is generated
     # or a post can reach the Facebook publisher.
     lines = [line.strip() for line in result.splitlines() if line.strip()]
-    if not 3 <= len(lines) <= 6:
+    # Require a final source credit and reject generic publisher-announcement filler.
+    if not lines or lines[-1] != f"- {source_name}":
+        lines = [line for line in lines if not line.lower().startswith(("source:", "source -", "— "))]
+        lines.append(f"- {source_name}")
+    body = " ".join(lines[:-1]).lower()
+    generic_phrases = (
+        "has published a story", "has published a news", "has reported a story",
+        "समाचार प्रकाशित गरेको छ", "समाचार प्रकाशन गरेको छ",
+        "सम्बन्धी समाचार प्रकाशित", "समाचार सार्वजनिक गरेको छ",
+    )
+    if any(phrase in body for phrase in generic_phrases):
+        raise RuntimeError("Generated post contains a generic publisher announcement instead of a news summary.")
+    if not 4 <= len(lines) <= 6:
         raise RuntimeError(
-            f"Generated news post has {len(lines)} lines; expected 3 to 6. "
+            f"Generated news post has {len(lines)} lines including source credit; expected 4 to 6. "
             "The item is skipped rather than publishing an incorrectly formatted post."
         )
     return "\n".join(lines)
