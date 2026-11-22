@@ -9,6 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import init_db, get_drafts, get_draft_image, replace_draft_image
 from image_generator import create_fallback_news_graphic, generate_news_image
 from news_monitor import check_feeds, configured_feeds, fetch_article_text
+from google_research import research_story
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
@@ -253,8 +254,26 @@ def refresh_story_image(item_id):
         return jsonify(error="Draft not found."), 404
     try:
         article_text = fetch_article_text(draft.get("url") or "", draft.get("summary") or "")
+        if len((article_text or "").strip()) < 180:
+            raise RuntimeError(
+                "The original article could not be read well enough to create a fact-matched image. "
+                "Please use the labelled editorial graphic until the source text is available."
+            )
+
+        # Research first: compare the headline and opening article facts with
+        # related reporting, then pass the findings into the visual scene plan.
+        research = research_story(draft["title"], article_text)
+        research_context = research.get("news_context", "")
+        visual_reference = research.get("visual_reference", "")
+        visual_brief = " ".join(
+            part for part in (
+                "Verified source article is primary evidence. " + research_context if research_context else "",
+                "Optional image-category reference (not evidence): " + visual_reference if visual_reference else "",
+            ) if part
+        )
         image = generate_news_image(
-            draft["title"], article_text, draft.get("summary") or ""
+            draft["title"], article_text, draft.get("summary") or "",
+            visual_brief=visual_brief[:1500],
         )
         if not replace_draft_image(item_id, image, "ai_illustration"):
             return jsonify(error="Could not save the regenerated image."), 500
