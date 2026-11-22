@@ -289,32 +289,38 @@ def _research_visual_plan(title, description, summary, research_context=""):
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a compact, story-specific prompt with a generous provider-limit margin."""
     clean = lambda value, limit: re.sub(r"\s+", " ", str(value or "").strip())[:limit]
-    headline = clean(title, 220)
-    facts = clean(description, 260)
-    post = clean(summary, 120)
-    # Preserve the research-derived scene plan; older 180-char trimming
-    # discarded the very details needed to keep the image on-topic.
-    brief = clean(visual_brief, 460)
-    direction = clean(_visual_direction(headline, facts, post, brief), 150)
-    # Keep the total comfortably below both character- and token-based limits.
+    headline = clean(title, 300)
+    # Preserve substantially more of the source material so the generator can
+    # build a scene from the article rather than guessing from a short headline.
+    facts = clean(description, 1500)
+    post = clean(summary, 450)
+    brief = clean(visual_brief, 1100)
+    direction = clean(_visual_direction(headline, facts, post, brief), 450)
     prompt = (
-        "Create ONE continuous realistic editorial scene for this exact news story, like a single photograph. "
-        "HEADLINE: " + headline + " "
-        "FACTS: " + facts + " "
-        "POST: " + post + " "
-        "VISUAL PLAN: " + brief + " "
-        "GUIDANCE: " + direction + " "
-        "Use one camera view, one location and one coherent moment. One dominant subject, "
-        "natural foreground and a believable story-specific background. "
-        "Use natural lighting, accurate perspective and balanced colours. "
-        "Do not invent people, faces, locations, flags, logos, dates, actions or events. "
-        "If uncertain, use one simple neutral symbolic scene. "
-        "ABSOLUTELY NO collage, split-screen, panels, frames, montage, inset pictures, "
-        "screens, tablets, papers, newspapers, ballots, charts, signs, captions, lettering, "
-        "numbers, symbols that resemble writing, logos, watermarks or unrelated props. "
-        "Professional photojournalistic editorial illustration; not evidence."
+        "Create ONE exceptionally detailed, coherent, realistic photo-style editorial illustration "
+        "for the exact news story below. Prioritize visual clarity, fine detail and believable photography. "
+        "STORY HEADLINE: " + headline + " "
+        "VERIFIED ARTICLE FACTS: " + facts + " "
+        "PUBLISHED POST SUMMARY: " + post + " "
+        "EDITORIAL SCENE PLAN: " + brief + " "
+        "SUBJECT GUIDANCE: " + direction + " "
+        "COMPOSITION: use a clear dominant subject occupying a substantial part of the frame; "
+        "show meaningful foreground, midground and background details that are directly supported "
+        "by the story. Use a deliberate professional camera composition, realistic scale, "
+        "crisp focus on the main subject, natural depth of field, fine surface textures, "
+        "accurate perspective, natural daylight and balanced true-to-life colours. "
+        "Render detailed edges and materials without haze, blur, smearing, painterly softness, "
+        "plastic-looking surfaces or low-resolution appearance. "
+        "FACTUAL LIMITS: do not invent named people, identifiable faces, airline or company branding, "
+        "logos, uniforms, flags, dates, signs, registration numbers, agreements, actions or events. "
+        "Only include location-specific details when the article confirms that location. "
+        "If a fact is not established, leave it out rather than guessing. "
+        "No collage, split screen, montage, borders, poster layout, text, letters, numbers, "
+        "watermarks, captions or decorative graphics. "
+        "This is an AI-generated editorial illustration, not a documentary news photograph."
     )
-    return prompt[:1650]
+    # Leave a safety margin for provider prompt limits while retaining all key facts.
+    return prompt[:3900]
 
 
 def _check_with_horde_caption(raw_image, visual_plan):
