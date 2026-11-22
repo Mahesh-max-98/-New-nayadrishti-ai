@@ -89,7 +89,7 @@ def save_draft(item_id, title, source, url, summary, language="auto",
              image_error, image_last_attempt)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT(item_id) DO UPDATE SET
-                image_data=COALESCE(drafts.image_data, EXCLUDED.image_data),
+                image_data=COALESCE(EXCLUDED.image_data, drafts.image_data),
                 image_status=EXCLUDED.image_status,
                 image_error=EXCLUDED.image_error,
                 image_last_attempt=CURRENT_TIMESTAMP
@@ -111,15 +111,21 @@ def get_drafts(limit=50):
 
 
 def get_draft_for_image_retry(item_id):
-    """Return a missing-image draft only when its retry cooldown has elapsed."""
+    """Return an unpublished draft needing an image retry after its cooldown."""
     with connection() as db:
         row = db.execute("""
             SELECT item_id, title, source, url, summary, image_status,
                    image_error, image_last_attempt,
                    (image_data IS NOT NULL) AS has_image
-            FROM drafts WHERE item_id=%s
+            FROM drafts WHERE item_id=%s AND status='draft'
         """, (item_id,)).fetchone()
-        if not row or row["has_image"]:
+        if not row:
+            return None
+        # Automatically retry failed/missing images and branded fallback graphics.
+        # Do not repeatedly regenerate a successful AI illustration or publisher photo.
+        if row["image_status"] not in ("pending", "failed", "fallback_graphic"):
+            return None
+        if row["has_image"] and row["image_status"] != "fallback_graphic":
             return None
         last_attempt = row["image_last_attempt"]
         if last_attempt is not None:
