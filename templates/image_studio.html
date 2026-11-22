@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NayaDrishti AI Image Studio</title>
+<style>
+:root{color-scheme:dark;--bg:#080d19;--panel:#111b2e;--line:#263650;--muted:#9aabc4;--cyan:#5eead4;--blue:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0%,#17304a 0,transparent 35%),var(--bg);color:#eef5ff;font:16px/1.5 system-ui,Arial,sans-serif}
+main{max-width:900px;margin:auto;padding:22px 16px 60px}header{padding:22px 0 18px}h1{font-size:clamp(28px,6vw,42px);line-height:1.1;margin:8px 0}p{color:var(--muted)}.brand{color:var(--cyan);font-weight:800;letter-spacing:.12em;font-size:12px;text-transform:uppercase}
+.panel{background:linear-gradient(145deg,#14213a,#0e1728);border:1px solid var(--line);border-radius:18px;padding:20px;margin:16px 0;box-shadow:0 12px 32px #0003}
+label{display:block;font-weight:700;margin:14px 0 7px}input,textarea{width:100%;background:#091323;color:#f8fafc;border:1px solid #354966;border-radius:11px;padding:13px;font:inherit}textarea{min-height:170px;resize:vertical}
+button{border:0;border-radius:11px;padding:13px 18px;font-weight:800;font-size:15px;background:linear-gradient(90deg,#0ea5e9,#14b8a6);color:#04111c;cursor:pointer;margin-top:15px;width:100%}button:disabled{opacity:.55;cursor:wait}
+.note{font-size:13px;color:#a8bad2}.status{white-space:pre-wrap;background:#081323;border:1px solid var(--line);padding:13px;border-radius:10px;margin-top:14px;color:#dbeafe}
+img{display:block;width:100%;height:auto;border-radius:13px;margin-top:16px;background:#07101d}.result{display:none}.download{display:inline-block;margin-top:12px;color:var(--cyan);font-weight:700}
+nav a{color:var(--cyan);text-decoration:none}footer{font-size:12px;color:#8497b3;padding:10px 0}
+</style></head>
+<body><main>
+<header><div class="brand">NayaDrishti · Creative desk</div><h1>AI Image Studio</h1><p>Turn a real news story into a carefully researched editorial illustration.</p><nav><a href="/">← Back to NayaDrishti dashboard</a></nav></header>
+<section class="panel">
+<h2>Create a story-matched image</h2>
+<p class="note">Paste the original headline and the article's factual text. More reliable context helps the image match the story. Do not paste passwords, tokens or private information.</p>
+<form id="studioForm">
+<label for="headline">News headline</label><input id="headline" maxlength="300" required placeholder="Paste the genuine news headline">
+<label for="article">Article facts / story text</label><textarea id="article" maxlength="8000" required placeholder="Paste the article text or a factual summary (at least 100 characters)..."></textarea>
+<label for="summary">Optional Nepali post summary</label><textarea id="summary" maxlength="800" style="min-height:85px" placeholder="नेपालीमा छोटो समाचार सारांश (वैकल्पिक)"></textarea>
+<button id="generate" type="submit">Generate editorial illustration</button>
+</form>
+<div id="status" class="status" aria-live="polite">Ready. Image generation uses a community-powered free service when available. Queue times and availability can vary.</div>
+</section>
+<section id="result" class="panel result">
+<h2>Your generated illustration</h2><p class="note">AI-generated editorial illustration — not a documentary news photograph.</p>
+<img id="preview" alt="AI-generated editorial illustration">
+<a id="download" class="download" download="nayadrishti-editorial-illustration.jpg">Download image</a>
+</section>
+<footer>Free community GPU availability is not guaranteed. No paid provider is used by this studio. Generated images are not automatically published to Facebook.</footer>
+</main>
+<script>
+const form=document.getElementById('studioForm'),button=document.getElementById('generate'),statusBox=document.getElementById('status'),result=document.getElementById('result');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+form.addEventListener('submit',async e=>{
+ e.preventDefault();button.disabled=true;button.textContent='Starting...';result.style.display='none';
+ try{
+  const response=await fetch('/image-studio/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('headline').value,article:document.getElementById('article').value,summary:document.getElementById('summary').value})});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not start generation.');
+  statusBox.textContent='Your image request has started. Researching the story and waiting for a free image worker...';
+  let done=false;
+  for(let i=0;i<100;i++){
+   await sleep(3000);
+   const check=await fetch('/image-studio/status/'+encodeURIComponent(data.job_id));const state=await check.json();
+   if(!check.ok)throw new Error(state.error||'Could not read generation status.');
+   if(state.status==='done'){
+    const src='data:image/jpeg;base64,'+state.image;document.getElementById('preview').src=src;document.getElementById('download').href=src;result.style.display='block';
+    statusBox.textContent='Image generated successfully. Review it carefully against the original article before using it.';done=true;break;
+   }
+   if(state.status==='error')throw new Error(state.error||'Image generation failed.');
+   statusBox.textContent=state.message||'Working...';
+  }
+  if(!done)throw new Error('This request is taking longer than the studio wait window. Check again later; no charge was made.');
+ }catch(err){statusBox.textContent='Generation unavailable: '+err.message+'\n\nTry again later. Free community workers may be busy.';}
+ finally{button.disabled=false;button.textContent='Generate editorial illustration';}
+});
+</script></body></html>
