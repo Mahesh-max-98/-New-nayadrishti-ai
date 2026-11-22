@@ -282,17 +282,17 @@ def _research_visual_plan(title, description, summary, research_context=""):
         return ""
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
     prompt = (
-        "You are the visual editor of a fact-checking Nepali newsroom.\\n"
-        "Create a specific visual production plan for ONE editorial illustration.\\n"
-        "Use the full article as primary evidence. Corroborating research is context only.\\n"
-        "Do not invent a location, person face, uniform, logo, crowd, action or event.\\n"
-        "Resolve exact event type: transfer vs match, appointment vs speech, proposal vs confirmed decision, result announcement vs classroom activity, arrival vs meeting.\\n"
-        "If exact location/background is not established, say so and choose a neutral symbolic background.\\n"
-        "Return labelled fields: SUBJECT, SCENE/BACKGROUND, FOREGROUND, MIDGROUND, BACKGROUND DETAILS, IDENTITY, MUST INCLUDE, MUST AVOID, CONFIDENCE. Be specific, under 160 words.\\n"
+        "You are the visual editor of a fact-checking Nepali newsroom.\n"
+        "Create a specific visual production plan for ONE editorial illustration.\n"
+        "Use the full article as primary evidence. Corroborating research is context only.\n"
+        "Do not invent a location, person face, uniform, logo, crowd, action or event.\n"
+        "Resolve exact event type: transfer vs match, appointment vs speech, proposal vs confirmed decision, result announcement vs classroom activity, arrival vs meeting.\n"
+        "If exact location/background is not established, say so and choose a neutral symbolic background.\n"
+        "Return labelled fields: SUBJECT, SCENE/BACKGROUND, FOREGROUND, MIDGROUND, BACKGROUND DETAILS, IDENTITY, MUST INCLUDE, MUST AVOID, CONFIDENCE. Be specific, under 160 words.\n"
         "HEADLINE: " + str(title or "")[:350] +
-        "\\nARTICLE: " + str(description or "")[:6500] +
-        "\\nPOST: " + str(summary or "")[:600] +
-        "\\nRESEARCH LEADS (not proof): " + str(research_context or "")[:2200]
+        "\nARTICLE: " + str(description or "")[:6500] +
+        "\nPOST: " + str(summary or "")[:600] +
+        "\nRESEARCH LEADS (not proof): " + str(research_context or "")[:2200]
     )
     try:
         response = requests.post(GROQ_URL, headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
