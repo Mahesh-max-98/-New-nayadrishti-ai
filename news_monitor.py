@@ -295,7 +295,11 @@ def check_feeds():
                             result["images_retried"] += 1
                             log.info("Recovered missing image for previously saved story: %s", title)
                         except Exception as retry_exc:
-                            log.warning("Image retry provider unavailable for %s: %s", title, retry_exc)
+                            retry_message = str(retry_exc).lower()
+                            if "daily free" in retry_message or "temporarily paused" in retry_message:
+                                log.info("AI image quota is paused; using the free branded fallback for: %s", title)
+                            else:
+                                log.warning("Image retry provider unavailable for %s: %s", title, retry_exc)
                             try:
                                 fallback_image = create_fallback_news_graphic(
                                     title, retry_draft["summary"]
@@ -372,7 +376,11 @@ def check_feeds():
                         image_status = "ai_illustration"
                         result["ai_illustrations_used"] += 1
                 except Exception as image_exc:
-                    log.warning("Image provider unavailable for %s: %s", source_name, image_exc)
+                    image_message = str(image_exc).lower()
+                    if "daily free" in image_message or "temporarily paused" in image_message:
+                        log.info("AI image quota is paused; using the free branded fallback for source: %s", source_name)
+                    else:
+                        log.warning("Image provider unavailable for %s: %s", source_name, image_exc)
                     image_error = f"{type(image_exc).__name__}: {str(image_exc)[:350]}"
                     # Never attach an unrelated stock photo. A clearly labelled,
                     # topic-headline graphic keeps the draft readable without
