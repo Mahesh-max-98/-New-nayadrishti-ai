@@ -125,25 +125,6 @@ def _visual_direction(title, description, summary, visual_brief=""):
     headline = re.sub(r"[\u2010-\u2015\u2212]", "-", headline)
     details = re.sub(r"[\u2010-\u2015\u2212]", "-", details)
 
-    # Diplomatic/state-visit stories must never fall through to generic category imagery.
-    if any(term in headline for term in (
-        "balen shah", "prime minister balen", "प्रधानमन्त्री बालेन",
-        "प्रधान मन्त्री बालेन", "state visit", "राज्य भ्रमण",
-        "new delhi", "नयाँ दिल्ली",
-    )):
-        return (
-            "OFFICIAL NEPAL-INDIA STATE VISIT NEWS: create a photorealistic, "
-            "respectful editorial scene at a formal diplomatic arrival in New Delhi, India. "
-            "Show a formal New Delhi airport arrival setting: a Nepal government aircraft "
-            "or official airport arrival entrance, a clearly visible Nepal flag and Indian flag, "
-            "and a dignified official motorcade area. Use an empty scene with NO PEOPLE and "
-            "NO PORTRAITS so no imaginary person can be mistaken for the Prime Minister. "
-            "Do NOT invent an aircraft registration, government logo, meeting or handshake. "
-            "No cricket ground, sports equipment, student, young man writing, classroom, "
-            "unrelated portrait, readable signs, text or logos. The image must unmistakably "
-            "communicate a Nepal-India diplomatic state visit in New Delhi."
-        )
-
     # Detect the kind of event, not only the sport/category. This prevents
     # transfer, signing, return and appointment stories from becoming fake match scenes.
     if any(term in headline for term in ("cricket", "imam-ul-haq", "imam ul haq", "pakistan opener", "pakistani opener", "yorkshire", "county cricket")):
@@ -283,13 +264,18 @@ def _research_visual_plan(title, description, summary, research_context=""):
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
     prompt = (
         "You are the visual editor of a fact-checking Nepali newsroom.\n"
-        "Create a specific visual production plan for ONE editorial illustration.\n"
-        "Use the full article as primary evidence. Corroborating research is context only.\n"
-        "Do not invent a location, person face, uniform, logo, crowd, action or event.\n"
+        "Read the headline three separate times before planning. Pass 1: identify the exact subject. Pass 2: identify the actual action/event and any named place. Pass 3: identify what the headline does NOT claim. Reconcile all three passes.\\n"
+        "Create one highly specific visual production plan for THIS story only.\n"
+        "Use the full article as primary evidence; research leads are secondary context, never proof.\n"
+        "The scene must be selected from this headline and article, not from a reusable newsroom template.\n"
+        "Never default to Kathmandu, Nepal, an airport, a classroom, an office, a stadium or any other recurring location. Use a place only if the article supports it.\n"
+        "Do not invent a location, person face, uniform, logo, crowd, action, event, date or national flag.\n"
         "Resolve exact event type: transfer vs match, appointment vs speech, proposal vs confirmed decision, result announcement vs classroom activity, arrival vs meeting.\n"
-        "If exact location/background is not established, say so and choose a neutral symbolic background.\n"
-        "Return labelled fields: SUBJECT, SCENE/BACKGROUND, FOREGROUND, MIDGROUND, BACKGROUND DETAILS, IDENTITY, MUST INCLUDE, MUST AVOID, CONFIDENCE. Be specific, under 160 words.\n"
-        "HEADLINE: " + str(title or "")[:350] +
+        "If exact location/background is not established, explicitly write LOCATION NOT ESTABLISHED and choose a distinct neutral symbolic scene tied to the actual subject.\n"
+        "Return labelled fields: SUBJECT, ACTION, LOCATION STATUS, SCENE/BACKGROUND, FOREGROUND, MIDGROUND, BACKGROUND DETAILS, IDENTITY, MUST INCLUDE, MUST AVOID, CONFIDENCE. Be specific, under 160 words.\n"
+        "HEADLINE (read pass 1): " + str(title or "")[:350] +
+        "\\nHEADLINE (read pass 2): " + str(title or "")[:350] +
+        "\\nHEADLINE (read pass 3): " + str(title or "")[:350] +
         "\nARTICLE: " + str(description or "")[:6500] +
         "\nPOST: " + str(summary or "")[:600] +
         "\nRESEARCH LEADS (not proof): " + str(research_context or "")[:2200]
@@ -318,18 +304,22 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:1250]
     direction = _visual_direction(headline, facts, post, brief)
     prompt = (
-        "TOP PRIORITY — FACT-LOCKED ARTICLE VISUAL PLAN: " + brief + " "
-        "HEADLINE: " + headline + " "
+        "TOP PRIORITY — THIS STORY'S FACT-LOCKED VISUAL PLAN: " + brief + " "
+        "HEADLINE READ PASS 1: " + headline + " "
+        "HEADLINE READ PASS 2: " + headline + " "
+        "HEADLINE READ PASS 3: " + headline + " "
         "ARTICLE FACTS: " + facts + " "
         "POST: " + post + " "
-        "CATEGORY SAFETY CHECK (secondary only): " + direction[:350] + " "
-        "Create one photorealistic editorial illustration for a Nepali newsroom. "
-        "The main subject AND the complete background must match the exact event and setting in the article plan. "
-        "Do not use a generic category scene. Choose correct country, city, venue, equipment, clothing context and event type only when supported by the article. "
+        "CATEGORY SAFETY CHECK (secondary only; never override the story plan): " + direction[:250] + " "
+        "Create one photorealistic editorial illustration for THIS exact news story. "
+        "First identify who or what the headline is about, what actually happened, and where it happened if the article states a place. "
+        "The focal subject, action, setting and every important background detail must directly represent this headline and article. "
+        "Do not reuse a default location or the same scene template across unrelated stories. Never assume Kathmandu, Nepal, an airport, classroom, office or stadium. "
+        "A named place may appear only when supported by the article. If no place is established, create a distinct subject-specific symbolic setting instead of guessing. "
         "Keep one clear focal subject, realistic depth, coherent foreground/middle-ground/background, natural documentary-style light and accurate proportions. "
         "Do not fabricate a recognisable face of a real person; use a non-identifiable rear view, silhouette or symbolic composition unless an authentic permitted photo is supplied separately. "
         "Do not add unrelated people, props, sport equipment, buildings, flags, logos, signs, text, numbers, watermarks, collage panels or activities. "
-        "If exact scene details are uncertain, use a restrained symbolic image rather than inventing a realistic location or event. "
+        "If headline and article disagree or the scene is uncertain, choose the narrower fact-supported subject and a neutral background. "
         "This is an AI editorial illustration, not documentary evidence."
     )
     return prompt[:3000]
@@ -348,11 +338,15 @@ def _check_visual_match(raw_image, title, description, visual_plan):
             encoded = base64.b64encode(normalized.getvalue()).decode("ascii")
         model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
         prompt = (
-            "Strictly compare the image with the news article and approved visual plan. "
-            "Check: (1) correct main subject/event, (2) correct setting/background, "
-            "(3) no unrelated objects, wrong sport, wrong country or invented activity, "
-            "(4) no fabricated identifiable real-person likeness. "
-            "HEADLINE: " + str(title or "")[:300] + " "
+            "Read the headline three times and compare it with the visible image and approved visual plan. "
+            "Check: (1) exact subject and event, (2) correct action, (3) whether the location is explicitly supported, "
+            "(4) the background is story-specific and not a repeated generic location, "
+            "(5) no unrelated objects, wrong sport, wrong country or invented activity, "
+            "(6) no fabricated identifiable real-person likeness. "
+            "If the picture could fit several unrelated headlines, mark RETRY. "
+            "HEADLINE PASS 1: " + str(title or "")[:300] + " "
+            "HEADLINE PASS 2: " + str(title or "")[:300] + " "
+            "HEADLINE PASS 3: " + str(title or "")[:300] + " "
             "ARTICLE: " + str(description or "")[:1800] + " "
             "VISUAL PLAN: " + str(visual_plan or "")[:1200] + " "
             "Return exactly VERDICT: PASS or VERDICT: RETRY, then PROBLEM: one short reason. "
