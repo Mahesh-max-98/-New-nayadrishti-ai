@@ -8,6 +8,7 @@ import base64
 import io
 import os
 import re
+from urllib.parse import quote
 
 import requests
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -168,11 +169,24 @@ def generate_image(prompt, reference_images=None, width=1024, height=768, guidan
         raise ImageProviderError("Could not connect to the image provider. Please retry later.") from exc
 
     if not response.ok:
-        detail = re.sub(r"\s+", " ", response.text or "")[:320]
-        if response.status_code == 429:
+        detail = re.sub(r"\\s+", " ", response.text or "")[:320]
+        if response.status_code in (429, 500, 502, 503, 504):
+            # Best-effort free fallback for text-only generations. It cannot
+            # preserve reference images, so edits never silently switch providers.
+            if not references:
+                try:
+                    return _generate_pollinations_fallback(prompt, width, height)
+                except ImageProviderError as fallback_error:
+                    raise ImageProviderError(
+                        "Cloudflare is unavailable or its free limit was reached. "
+                        "The free Pollinations fallback was also unavailable. "
+                        "No paid provider was used. Try again later. "
+                        + str(fallback_error)[:180]
+                    ) from fallback_error
             raise ImageProviderError(
-                "The image provider is busy or its free daily usage limit has been reached. "
-                "No paid fallback was used. Try again later. " + detail
+                "Cloudflare is busy or its free limit was reached. Reference-image "
+                "requests cannot use the text-only fallback. No paid provider was used. "
+                "Try again later. " + detail
             )
         if response.status_code in (401, 403):
             raise ImageProviderError(
@@ -183,4 +197,26 @@ def generate_image(prompt, reference_images=None, width=1024, height=768, guidan
             f"Image provider request failed (HTTP {response.status_code}). {detail}"
         )
 
+    return _decode_provider_response(response)
+
+
+def _generate_pollinations_fallback(prompt, width, height):
+    """Best-effort Pollinations fallback for text-only image generation."""
+    url = "https://gen.pollinations.ai/image/" + quote(prompt, safe="")
+    try:
+        response = requests.get(
+            url,
+            params={"model": "flux", "width": str(width), "height": str(height)},
+            headers={"Accept": "image/*"},
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.Timeout as exc:
+        raise ImageProviderError("Pollinations fallback timed out.") from exc
+    except requests.RequestException as exc:
+        raise ImageProviderError("Could not connect to the free Pollinations fallback.") from exc
+
+    if not response.ok:
+        raise ImageProviderError(
+            f"Pollinations fallback returned HTTP {response.status_code}."
+        )
     return _decode_provider_response(response)
