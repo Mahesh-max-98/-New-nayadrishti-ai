@@ -292,7 +292,7 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
         "The main subject must be large, clearly recognizable as the reported topic, and visually dominant; use meaningful foreground, midground and background details drawn from the article. "
         "Make every scene distinct to this story. Never recycle the same city, airport, classroom, office, stadium, generic person-at-desk pose or background across unrelated stories. "
         "Only show a named location, national flag, uniform, vehicle, building or real-world event detail when the article supports it. "
-        "Use natural documentary photography qualities: realistic daylight or plausible event lighting, lifelike materials and skin texture, accurate anatomy and perspective, crisp focal detail, subtle depth of field, balanced exposure, rich but natural colour, clean edges and professional photojournalistic composition. "
+        "Use natural documentary photography qualities: realistic daylight or plausible event lighting, lifelike materials and skin texture, accurate anatomy and perspective, crisp focal detail, subtle depth of field, balanced exposure, rich but natural colour, clean edges and professional photojournalistic composition. ""Build a clear visual hierarchy: one unmistakable primary subject occupying roughly half the frame, a meaningful foreground, and a background that identifies this exact story without competing with the subject. ""Use a fresh camera angle and setting appropriate to the article; avoid stock-photo poses, repeated generic locations, empty central space, decorative geometric filler and unnecessary close-up crops. ""Keep important subject details inside the frame with realistic scale, physically plausible lighting and coherent shadows. "
         "Avoid plastic-looking skin, waxy faces, oversaturated colours, excessive glow, artificial HDR, cartoon styling, blurry subjects, distorted hands and duplicated objects. ""ABSOLUTE TEXT BAN: no readable or pseudo-readable text anywhere in the image. No newspaper, magazine, document, poster, banner, sign, label, screen text, captions, letters, numbers, logos or watermarks. Never depict a newspaper headline. "
         "Do not fabricate a recognisable face of a real person; use a non-identifiable rear view, silhouette or symbolic composition unless an authentic permitted photo is supplied separately. "
         "Do not add unrelated people, props, sport equipment, buildings, flags, logos, signs, text, numbers, watermarks, collage panels or activities. "
@@ -319,9 +319,9 @@ def _check_visual_match(raw_image, title, description, visual_plan):
         prompt = (
             "Read the headline three times and compare it with the visible image and approved visual plan. "
             "Check: (1) exact subject and event, (2) correct action, (3) whether the location is explicitly supported, (4) the image contains no text or text-like marks of any kind, no newspaper/document/sign/screen, "
-            "(4) the background is story-specific and not a repeated generic location, "
-            "(5) no unrelated objects, wrong sport, wrong country or invented activity, "
-            "(6) no fabricated identifiable real-person likeness. "
+            "(5) whether the primary subject is clear and visually dominant, (6) whether foreground and background match this exact story rather than a generic template, "
+            "(7) no unrelated objects, wrong sport, wrong country or invented activity, "
+            "(8) no fabricated identifiable real-person likeness. "
             "If the picture could fit several unrelated headlines, mark RETRY. "
             "HEADLINE PASS 1: " + str(title or "")[:300] + " "
             "HEADLINE PASS 2: " + str(title or "")[:300] + " "
@@ -370,14 +370,11 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
 
     prompt = _build_image_prompt(title, description, summary, visual_brief)
-    pollinations_key = os.getenv("POLLINATIONS_API_KEY", "").strip()
-    pollinations_enabled = os.getenv("POLLINATIONS_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
-
+    # Strict zero-cost mode: never call Pollinations. Its requests may consume
+    # account credits, even if an API key is already configured in Render.
+    # Cloudflare Workers AI remains the only image-generation API in this app.
     def try_pollinations():
-        # This provider is deliberately opt-in. Its API may consume account credits;
-        # never call it unless the operator explicitly enables it and supplies a key.
-        if not pollinations_enabled or not pollinations_key:
-            return None
+        return None
         from urllib.parse import quote
 
         image_url = "https://gen.pollinations.ai/image/" + quote(prompt, safe="")
@@ -418,7 +415,7 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
 
         if account_id and api_token:
             url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
-            for attempt in range(2):
+            for attempt in range(1):
                 try:
                     response = requests.post(
                         url,
