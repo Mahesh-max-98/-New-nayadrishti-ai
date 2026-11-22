@@ -7,7 +7,8 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def write_summary(title, description, source_name, article_url):
     """Create a factual Nepali-first bilingual Facebook post with a final source credit."""
-    # Google News is only the discovery route; credit the original publisher.
+    # Remember whether the feed is Google News before cleaning its display name.
+    is_google_discovery = str(source_name or "").lower().startswith("google news")
     source_name = re.sub(r"^Google News\s*-\s*", "", str(source_name or ""), flags=re.I).strip()
     source_name = re.sub(r"^The\s+", "", source_name, flags=re.I).strip()
     api_key = os.getenv("GROQ_API_KEY")
@@ -17,10 +18,10 @@ def write_summary(title, description, source_name, article_url):
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
     # Google News is discovery only; extract the original publisher from its title suffix.
-    if source_name.lower().startswith("google news"):
-        match = re.search(r"\\s[-–—]\\s([^|]+)$", str(title or "").strip())
+    if is_google_discovery:
+        match = re.search(r"\s[-–—]\s([^|]+)$", str(title or "").strip())
         if match:
-            source_name = re.sub(r"^The\\s+", "", match.group(1).strip(), flags=re.I)
+            source_name = re.sub(r"^The\s+", "", match.group(1).strip(), flags=re.I)
 
     prompt = f"""
 You are NayaDrishti's careful Nepali news editor.
@@ -132,12 +133,12 @@ Article URL: {article_url}
     )
     lines = [line.strip() for line in result.splitlines() if line.strip()]
     nepali_line = lines[0] if lines else ""
-    english_line = re.sub(r"\\s*[-–—]\\s*[^|]+$", "", str(title or "").strip())
+    english_line = re.sub(r"\s*[-–—]\s*[^|]+$", "", str(title or "").strip())
     if not nepali_line or not english_line:
         raise RuntimeError("Generated Nepali headline or original English headline is empty.")
     if any(phrase in nepali_line.lower() for phrase in generic_phrases):
         raise RuntimeError("Generated post contains a generic publisher announcement instead of a news summary.")
-    return f"{nepali_line}\\n{english_line} - {source_name}"
+    return f"{nepali_line}\n{english_line} - {source_name}"
 
 def write_visual_brief(title, description, source_name):
     """Extract a compact, fact-grounded visual brief for the story image."""
