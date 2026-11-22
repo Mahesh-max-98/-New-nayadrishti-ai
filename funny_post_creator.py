@@ -44,19 +44,32 @@ def _write_joke(topic="", kind="mixed"):
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.9,
-            "max_completion_tokens": 350,
+            "max_completion_tokens": 500,
+            "response_format": {"type": "json_object"},
         },
         timeout=(10, 35),
     )
     if not response.ok:
         raise RuntimeError("Joke-writing service failed (HTTP " + str(response.status_code) + ").")
-    choices = (response.json() or {}).get("choices") or []
-    raw = (choices[0].get("message") or {}).get("content") if choices else ""
-    raw = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", str(raw or "").strip(), flags=re.I)
+    payload = response.json() or {}
+    choices = payload.get("choices") or []
+    message = (choices[0].get("message") or {}) if choices else {}
+    raw = message.get("content") or ""
+    if isinstance(raw, list):
+        raw = " ".join(str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in raw)
+    raw = re.sub(r"^\\s*```(?:json)?\\s*|\\s*```\\s*$", "", str(raw).strip(), flags=re.I)
     try:
         data = json.loads(raw)
-    except (ValueError, TypeError) as exc:
-        raise RuntimeError("The joke writer returned an invalid response. Please retry.") from exc
+    except (ValueError, TypeError):
+        match = re.search(r"\\{[\\s\\S]*\\}", raw)
+        if not match:
+            raise RuntimeError("The joke writer returned text instead of the required JSON. Please retry.")
+        try:
+            data = json.loads(match.group(0))
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("The joke writer returned malformed JSON. Please retry.") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("The joke writer returned an unexpected response format. Please retry.")
     quote = re.sub(r"\s+", " ", str(data.get("quote") or "")).strip()
     photo_prompt = re.sub(r"\s+", " ", str(data.get("photo_prompt") or "")).strip()
     if not quote or not photo_prompt:
