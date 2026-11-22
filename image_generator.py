@@ -50,11 +50,11 @@ def _compose_news_card(image, title, summary, ai_generated=False):
     od = ImageDraw.Draw(overlay)
     # Soft bottom gradient keeps the story image visible while making headlines readable.
     for y in range(570, 900):
-        alpha = int(25 + 220 * ((y - 570) / 330))
+        alpha = int(8 + 105 * ((y - 570) / 330))
         od.line((0, y, 1200, y), fill=(5, 15, 31, alpha))
     # Slim masthead backdrop gives every post a recognisable brand signature.
     for y in range(0, 112):
-        alpha = int(205 - 35 * (y / 112))
+        alpha = int(85 - 25 * (y / 112))
         od.line((0, y, 1200, y), fill=(5, 17, 35, alpha))
     image = Image.alpha_composite(image, overlay)
     draw = ImageDraw.Draw(image)
