@@ -553,17 +553,22 @@ def _read_reference_uploads(files):
 def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, height,
                        references=None, edit_source=None, parent_image_id=None,
                        enhanced_prompt="", edit_instruction="", original_prompt="",
-                       conversation_context=""):
+                       conversation_context="", variation=False):
     with _image_studio_lock:
         _image_studio_jobs[job_id] = {"status": "running", "message": "Preparing your image request..."}
     try:
         if edit_source is not None:
             with _image_studio_lock:
                 _image_studio_jobs[job_id] = {"status": "running", "message": "Editing the previous image while preserving its subject..."}
-            image_bytes = edit_studio_image(
-                edit_source, edit_instruction or prompt, width, height, references,
-                conversation_context=conversation_context,
-            )
+            if variation:
+                image_bytes = create_variation(
+                    edit_source, edit_instruction or prompt, width, height
+                )
+            else:
+                image_bytes = edit_studio_image(
+                    edit_source, edit_instruction or prompt, width, height, references,
+                    conversation_context=conversation_context,
+                )
         else:
             image_bytes = generate_studio_image(
                 _studio_prompt(prompt, style), references, width, height
@@ -599,7 +604,7 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
 
 def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
                       references=None, edit_source=None, parent_image_id=None,
-                      enhanced_prompt="", edit_instruction="", original_prompt="", conversation_context=""):
+                      enhanced_prompt="", edit_instruction="", original_prompt="", conversation_context="", variation=False):
     with _image_studio_lock:
         active = sum(1 for item in _image_studio_jobs.values() if item.get("status") in ("queued", "running"))
         if active >= 1:
@@ -609,7 +614,7 @@ def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
     thread = threading.Thread(
         target=_studio_job_worker,
         args=(job_id, owner_id, conversation_id, prompt, style, width, height,
-              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction, original_prompt, conversation_context),
+              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction, original_prompt, conversation_context, variation),
         daemon=True,
     )
     thread.start()
@@ -719,7 +724,7 @@ def api_edit_image():
     width, height = _studio_dimensions(payload.get("aspect_ratio") or "4:3")
     try:
         prior = get_conversation(conversation_id, _studio_owner())
-        prior_context = "\\n".join(
+        prior_context = chr(10).join(
             f"{message['role']}: {message['content']}"
             for message in (prior or {}).get("messages", [])[-8:]
             if message.get("content")
@@ -765,7 +770,7 @@ def api_image_variations():
     job_id = _start_studio_job(
         _studio_owner(), source["conversation_id"], instruction, "photorealistic",
         width, height, [], bytes(source["image_data"]), image_id,
-        edit_instruction=instruction, conversation_context=prior_context,
+        edit_instruction=instruction, conversation_context=prior_context, variation=True,
     )
     if not job_id:
         return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
