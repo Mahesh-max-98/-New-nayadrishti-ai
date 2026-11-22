@@ -63,3 +63,47 @@ python app.py
 ```
 
 The background worker can be started separately with `python worker.py` when a suitable always-on environment is available.
+
+## AI Image Studio (development branch)
+
+The separate Image Studio uses:
+- Image pixels: Cloudflare Workers AI with Black Forest Labs FLUX.2 Klein 9B (model ID @cf/black-forest-labs/flux-2-klein-9b).
+- Prompt understanding: Groq, used only to improve text prompts; Groq is not the image generator.
+- Persistent history: PostgreSQL stores conversations, messages, image versions and reference uploads. Render's local filesystem is not used for image history.
+- Editing: reference-image-based editing and variations. The source image is preserved as a separate version.
+
+The model supports up to four reference images. The adapter prepares reference inputs for the model's documented size limit. The initial implementation supports one generated image per request and one active generation job at a time.
+
+### Image Studio environment variables
+
+- CLOUDFLARE_ACCOUNT_ID: Cloudflare account ID.
+- CLOUDFLARE_API_TOKEN: server-side token with Workers AI permission.
+- IMAGE_MODEL: optional; defaults to @cf/black-forest-labs/flux-2-klein-9b.
+- GROQ_API_KEY: required for prompt enhancement and existing news writing.
+- GROQ_MODEL: text model used by Groq.
+
+Keep all credentials in Render environment variables. Never commit real keys to GitHub.
+
+### Cost and privacy limits
+
+Cloudflare documents a free Workers AI allocation of 10,000 neurons per day. The allocation is shared across Workers AI usage on the account and is not unlimited. Do not upgrade the Cloudflare account to a paid Workers plan for this project unless the account owner explicitly chooses to do so. This app does not switch to a paid provider or use a paid fallback.
+
+The Image Studio uses PostgreSQL BYTEA storage for the current version. This is durable only while the configured PostgreSQL service and its retention plan remain active. A separate private object-storage service has not yet been configured.
+
+The current app has one admin-password account. Image history is private to that admin session; multi-user accounts are not implemented. Editing uses model reference conditioning, not precise brush masks or guaranteed pixel-level inpainting. Background removal, object removal, selective masks, upscaling and multi-image batch generation are not implemented yet.
+
+### Image Studio API routes
+
+- POST /api/images/generate
+- POST /api/images/edit
+- POST /api/images/variations
+- POST /api/images/enhance-prompt
+- POST /api/images/upload
+- GET /api/images/history
+- GET /api/images/<image_id>
+- GET /api/images/<image_id>/content
+- DELETE /api/images/<image_id>
+- GET /api/images/conversations/<conversation_id>
+- DELETE /api/images/conversations/<conversation_id>
+
+The legacy news-image generation and Facebook publishing code remains separate. Facebook auto-publishing should remain disabled during image testing.
