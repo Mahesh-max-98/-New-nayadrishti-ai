@@ -260,8 +260,27 @@ def refresh_story_image(item_id):
             return jsonify(error="Could not save the regenerated image."), 500
         return jsonify(success=True, message="Story image regenerated.")
     except Exception as exc:
-        app.logger.exception("Could not regenerate story image for %s", item_id)
-        return jsonify(error=f"Image regeneration failed: {type(exc).__name__}: {str(exc)[:180]}"), 500
+        app.logger.exception("AI image regeneration was rejected or unavailable for %s", item_id)
+        # Never keep presenting a known-bad generated image after QA rejects it.
+        # Save a clearly labelled, topic-specific editorial graphic instead.
+        try:
+            fallback = create_fallback_news_graphic(
+                draft.get("title") or "Latest News",
+                draft.get("summary") or "",
+            )
+            if not replace_draft_image(item_id, fallback, "fallback_graphic"):
+                return jsonify(error="AI image failed review and the fallback graphic could not be saved."), 500
+            return jsonify(
+                success=True,
+                fallback=True,
+                message="AI image did not pass the accuracy check. A clearly labelled editorial graphic was saved instead.",
+            )
+        except Exception as fallback_exc:
+            app.logger.exception("Could not save fallback graphic for %s", item_id)
+            return jsonify(
+                error=f"Image regeneration failed: {type(exc).__name__}: {str(exc)[:140]}; "
+                      f"fallback failed: {type(fallback_exc).__name__}: {str(fallback_exc)[:100]}"
+            ), 500
 
 
 @app.get("/draft-image/<item_id>")
