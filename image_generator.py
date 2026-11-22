@@ -10,6 +10,10 @@ from PIL import Image, ImageDraw, ImageFont
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
 API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 
+# Avoid repeatedly calling a quota-exhausted free image endpoint.
+_CLOUDFLARE_COOLDOWN_UNTIL = 0.0
+_CLOUDFLARE_COOLDOWN_REASON = ""
+
 
 def _compose_news_card(image, title, summary, ai_generated=False):
     """Create a consistent NayaDrishti card with a readable headline."""
@@ -292,6 +296,9 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     return prompt[:2048]
 
 def generate_news_image(title, description="", summary="", visual_brief=""):
+    global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
+    if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+        raise RuntimeError("Free AI image quota is temporarily paused after a provider daily-limit response; using the branded fallback instead. " + _CLOUDFLARE_COOLDOWN_REASON)
     """Generate a story-specific editorial illustration when no licensed photo is available."""
     account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -318,6 +325,19 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
             )
             if not response.ok:
                 detail = response.text[:500].replace(chr(10), " ")
+                lower_detail = detail.lower()
+                quota_exhausted = (
+                    response.status_code == 429
+                    and (
+                        "4006" in lower_detail
+                        or "daily free allocation" in lower_detail
+                        or ("used up" in lower_detail and "neurons" in lower_detail)
+                    )
+                )
+                if quota_exhausted:
+                    # Provider controls the exact daily reset time.
+                    _CLOUDFLARE_COOLDOWN_UNTIL = time.monotonic() + 6 * 60 * 60
+                    _CLOUDFLARE_COOLDOWN_REASON = "Cloudflare reported that its daily free AI allocation is exhausted."
                 raise RuntimeError(
                     f"Cloudflare image API error {response.status_code}: {detail}"
                 )
@@ -358,7 +378,7 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
         except Exception as exc:
             last_error = exc
             raw = None
-            if attempt == 0:
+            if attempt == 0 and "daily free AI allocation" not in str(exc):
                 time.sleep(2)
     if raw is None:
         raise RuntimeError(f"Image generation failed after retry: {last_error}") from last_error
