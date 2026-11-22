@@ -356,8 +356,16 @@ def check_feeds():
                     if retry_draft:
                         try:
                             retry_article_text = fetch_article_text(link, description)
+                            retry_research = research_story(title, retry_article_text)
+                            retry_visual_brief = " ".join(
+                                part for part in (
+                                    "Corroborating news leads: " + retry_research.get("news_context", "") if retry_research.get("news_context") else "",
+                                    "Checked visual reference: " + retry_research.get("visual_reference", "") if retry_research.get("visual_reference") else "",
+                                ) if part
+                            )
                             retry_image = generate_news_image(
-                                title, retry_article_text, retry_draft["summary"]
+                                title, retry_article_text, retry_draft["summary"],
+                                visual_brief=retry_visual_brief[:1200],
                             )
                             save_draft(
                                 item_id, title, source_name, link,
@@ -529,8 +537,16 @@ def check_feeds():
             link = retry_draft.get("url") or ""
             try:
                 article_text = fetch_article_text(link, title + " " + retry_draft["summary"])
+                retry_research = research_story(title, article_text)
+                retry_visual_brief = " ".join(
+                    part for part in (
+                        "Corroborating news leads: " + retry_research.get("news_context", "") if retry_research.get("news_context") else "",
+                        "Checked visual reference: " + retry_research.get("visual_reference", "") if retry_research.get("visual_reference") else "",
+                    ) if part
+                )
                 image_data = generate_news_image(
-                    title, article_text, retry_draft["summary"]
+                    title, article_text, retry_draft["summary"],
+                    visual_brief=retry_visual_brief[:1200],
                 )
                 save_draft(
                     item_id, title, source_name, link, retry_draft["summary"],
