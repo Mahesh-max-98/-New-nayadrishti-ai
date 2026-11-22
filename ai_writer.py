@@ -9,6 +9,7 @@ def write_summary(title, description, source_name, article_url):
     """Create a factual Nepali-first bilingual Facebook post with a final source credit."""
     # Google News is only the discovery route; credit the original publisher.
     source_name = re.sub(r"^Google News\s*-\s*", "", str(source_name or ""), flags=re.I).strip()
+    source_name = re.sub(r"^The\s+", "", source_name, flags=re.I).strip()
     api_key = os.getenv("GROQ_API_KEY")
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
 
@@ -57,9 +58,9 @@ Article URL: {article_url}
                 {
                     "role": "system",
                     "content": (
-                        "You are a precise bilingual news editor. Follow the "
-                        "requested format exactly. Return only the finished "
-                        "short post, not analysis or explanations."
+                        "You are a precise Nepali news editor. Follow the one-line Nepali "
+                        "headline format exactly. Return only the finished "
+                        "post, not analysis or explanations."
                     ),
                 },
                 {"role": "user", "content": prompt},
