@@ -587,10 +587,10 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
                             "Content-Type": "application/json",
                             "Accept": "application/json, image/jpeg, image/png",
                         },
-                        files={
-                            "prompt": (None, prompt),
-                            "width": (None, "1024"),
-                            "height": (None, "768"),
+                        json={
+                            "prompt": prompt,
+                            "width": 1024,
+                            "height": 768,
                         },
                         timeout=(25, 180),
                     )
