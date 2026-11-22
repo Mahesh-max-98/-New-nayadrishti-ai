@@ -572,7 +572,7 @@ def create_fallback_news_graphic(title, summary=""):
         if len(lines) <= max_lines:
             break
     y = 635
-    line_height = 57 if chosen_font.size >= 46 else 49
+    line_height = 57 if size >= 46 else 49
     for line in lines[:max_lines]:
         d.text((125, y), line, font=chosen_font, fill=ink)
         y += line_height
