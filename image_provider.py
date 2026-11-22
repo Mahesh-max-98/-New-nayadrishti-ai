@@ -12,6 +12,7 @@ import io
 import os
 import re
 import time
+import threading
 from urllib.parse import urlparse
 
 import requests
@@ -25,6 +26,12 @@ MAX_REFERENCE_IMAGES = 4
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 REFERENCE_MAX_EDGE = 511
 REQUEST_TIMEOUT = (20, 180)
+_provider_state = threading.local()
+
+
+def get_last_provider():
+    """Return the provider used by the current worker thread."""
+    return getattr(_provider_state, "name", None)
 
 
 class ImageProviderError(RuntimeError):
@@ -314,7 +321,9 @@ def generate_image(prompt, reference_images=None, width=1024, height=768, guidan
     cloudflare_error = None
     if cloudflare_configured:
         try:
-            return _cloudflare_generate(prompt, references, width, height, guidance)
+            image = _cloudflare_generate(prompt, references, width, height, guidance)
+            _provider_state.name = "Cloudflare Workers AI"
+            return image
         except ImageProviderError as exc:
             cloudflare_error = str(exc)
             # Never send a user's uploaded/reference photo to a public volunteer network.
@@ -329,7 +338,9 @@ def generate_image(prompt, reference_images=None, width=1024, height=768, guidan
         )
 
     try:
-        return _horde_generate(prompt, width, height)
+        image = _horde_generate(prompt, width, height)
+        _provider_state.name = "AI Horde community workers"
+        return image
     except ImageProviderError as horde_error:
         if cloudflare_error:
             raise ImageProviderError(
