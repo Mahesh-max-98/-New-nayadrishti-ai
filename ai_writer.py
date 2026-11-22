@@ -8,7 +8,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 def write_summary(title, description, source_name, article_url):
     """Create a factual Nepali-first bilingual Facebook post with a final source credit."""
     # Google News is only the discovery route; credit the original publisher.
-    source_name = re.sub(r"^Google News\\s*-\\s*", "", str(source_name or ""), flags=re.I).strip()
+    source_name = re.sub(r"^Google News\s*-\s*", "", str(source_name or ""), flags=re.I).strip()
     api_key = os.getenv("GROQ_API_KEY")
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
 
