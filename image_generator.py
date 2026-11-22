@@ -408,23 +408,24 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
 
 
 def create_fallback_news_graphic(title, summary=""):
-    """Create a topic-specific illustrated scene when AI image service is unavailable."""
+    """Create a polished, colourful NayaDrishti editorial poster when image APIs are unavailable."""
     headline = re.sub(r"\s+", " ", (title or "Latest News").strip())[:180]
     low = (headline + " " + (summary or "")).lower()
-    canvas = Image.new("RGB", (1200, 900), (8, 20, 42))
-    draw = ImageDraw.Draw(canvas)
 
-    # Smooth editorial background and a large illustration stage.
-    for y in range(900):
-        t = y / 900
-        shade = int(18 + 34 * t)
-        draw.line((0, y, 1200, y), fill=(7, shade, min(105, shade + 40)))
-    draw.rounded_rectangle((42, 38, 1158, 620), radius=34,
-                           fill=(14, 43, 76), outline=(67, 132, 174), width=3)
-
-    # Select a clear visual motif from the headline. These are illustrations,
-    # not claims that a specific photographed event took place.
-    category = "general"
+    # Distinct, restrained palettes by beat: colourful without turning every post blue.
+    themes = {
+        "education": ((249, 241, 220), (42, 57, 48), (184, 91, 49), (232, 190, 105), (255, 250, 238)),
+        "cricket": ((239, 242, 218), (35, 58, 44), (181, 65, 49), (220, 166, 76), (250, 247, 230)),
+        "football": ((247, 231, 219), (53, 43, 39), (178, 66, 53), (218, 137, 76), (255, 247, 236)),
+        "weather": ((231, 239, 231), (43, 59, 53), (71, 123, 103), (210, 160, 86), (249, 248, 235)),
+        "politics": ((242, 231, 218), (48, 45, 43), (151, 67, 53), (196, 145, 83), (255, 248, 237)),
+        "health": ((235, 241, 224), (43, 61, 51), (71, 128, 104), (205, 158, 91), (250, 249, 235)),
+        "transport": ((242, 234, 218), (48, 53, 53), (181, 92, 48), (210, 164, 85), (255, 249, 237)),
+        "technology": ((235, 231, 219), (43, 48, 54), (126, 91, 133), (205, 155, 87), (250, 247, 237)),
+        "business": ((244, 235, 216), (51, 53, 43), (137, 105, 55), (204, 151, 79), (255, 250, 238)),
+        "entertainment": ((246, 229, 220), (57, 43, 48), (164, 77, 105), (218, 151, 91), (255, 247, 238)),
+        "general": ((239, 232, 216), (48, 49, 44), (157, 83, 55), (207, 157, 82), (255, 249, 237)),
+    }
     if any(k in low for k in ("neb", "result", "exam", "education", "school", "student", "परीक्षा", "नतिजा", "शिक्षा", "विद्यार्थी", "कक्षा")):
         category = "education"
     elif any(k in low for k in ("cricket", "wicket", "batter", "bowler", "क्रिकेट", "विकेट", "रन")):
@@ -437,83 +438,27 @@ def create_fallback_news_graphic(title, summary=""):
         category = "politics"
     elif any(k in low for k in ("hospital", "health", "doctor", "स्वास्थ्य", "अस्पताल", "चिकित्सक")):
         category = "health"
+    elif any(k in low for k in ("technology", "software", "artificial intelligence", "cyber", "smartphone", "mobile app", "प्रविधि", "कृत्रिम बुद्धिमत्ता", "मोबाइल")):
+        category = "technology"
+    elif any(k in low for k in ("business", "economy", "market", "bank", "stock", "budget", "व्यवसाय", "अर्थतन्त्र", "बजार", "बैंक", "बजेट")):
+        category = "business"
+    elif any(k in low for k in ("movie", "film", "actor", "singer", "concert", "music", "चलचित्र", "अभिनेता", "गायक", "संगीत")):
+        category = "entertainment"
     elif any(k in low for k in ("road", "traffic", "bus", "airport", "flight", "सडक", "यातायात", "विमान")):
         category = "transport"
-
-    white = (238, 246, 255)
-    cyan = (63, 196, 215)
-    gold = (246, 190, 75)
-    pale = (176, 211, 230)
-
-    # Common illustrated scene framing.
-    draw.ellipse((770, 65, 1110, 405), outline=(38, 91, 133), width=5)
-    draw.ellipse((820, 115, 1060, 355), outline=(38, 91, 133), width=3)
-
-    if category == "education":
-        # School + open book + result sheet motif (no fabricated marks/text).
-        draw.polygon([(180, 330), (600, 155), (1015, 330)], fill=(45, 112, 150), outline=cyan)
-        draw.rectangle((245, 325, 955, 520), fill=(26, 76, 111), outline=white, width=4)
-        for x in (340, 485, 630, 775):
-            draw.rectangle((x, 375, x + 75, 455), fill=(112, 185, 207), outline=white, width=3)
-        draw.rectangle((545, 425, 655, 520), fill=(9, 35, 62), outline=gold, width=3)
-        draw.rounded_rectangle((75, 455, 350, 570), radius=14, fill=(235, 244, 249), outline=gold, width=4)
-        draw.line((105, 490, 305, 490), fill=(54, 101, 134), width=5)
-        draw.line((105, 520, 270, 520), fill=(54, 101, 134), width=5)
-        draw.line((105, 548, 245, 548), fill=(54, 101, 134), width=5)
-        draw.text((390, 545), "EDUCATION", fill=white)
-    elif category == "cricket":
-        draw.rectangle((90, 390, 1110, 565), fill=(29, 104, 79), outline=(113, 190, 135), width=4)
-        draw.ellipse((360, 350, 840, 580), fill=(48, 133, 92), outline=(176, 220, 169), width=4)
-        draw.polygon([(260, 505), (335, 485), (585, 180), (640, 195)], fill=(204, 166, 111), outline=white)
-        draw.ellipse((775, 420, 835, 480), fill=(196, 54, 53), outline=white, width=3)
-        for x in (870, 895, 920):
-            draw.line((x, 430, x, 555), fill=white, width=9)
-        draw.line((860, 430, 930, 430), fill=white, width=8)
-        draw.text((430, 545), "CRICKET", fill=white)
-    elif category == "football":
-        draw.rectangle((100, 155, 1100, 570), outline=(130, 207, 160), width=5)
-        draw.line((600, 155, 600, 570), fill=(130, 207, 160), width=4)
-        draw.ellipse((430, 260, 770, 600), outline=(130, 207, 160), width=4)
-        draw.rectangle((100, 270, 260, 455), outline=white, width=5)
-        draw.rectangle((940, 270, 1100, 455), outline=white, width=5)
-        draw.ellipse((540, 330, 660, 450), fill=white, outline=(26, 44, 61), width=5)
-        draw.text((485, 545), "FOOTBALL", fill=white)
-    elif category == "weather":
-        draw.ellipse((270, 210, 550, 470), fill=(205, 225, 236))
-        draw.ellipse((430, 145, 720, 465), fill=(205, 225, 236))
-        draw.ellipse((650, 220, 930, 470), fill=(205, 225, 236))
-        draw.rectangle((390, 320, 810, 455), fill=(205, 225, 236))
-        for x in (390, 520, 650, 780):
-            draw.line((x, 470, x - 45, 555), fill=cyan, width=9)
-        draw.text((495, 555), "WEATHER", fill=white)
-    elif category == "politics":
-        draw.polygon([(220, 300), (600, 130), (980, 300)], fill=(53, 119, 155), outline=gold)
-        draw.rectangle((260, 300, 940, 520), fill=(35, 81, 116), outline=white, width=4)
-        for x in (350, 475, 600, 725, 850):
-            draw.rectangle((x, 330, x + 35, 520), fill=(153, 194, 210))
-        draw.rectangle((210, 520, 990, 555), fill=gold)
-        draw.text((470, 565), "CIVIC UPDATE", fill=white)
-    elif category == "health":
-        draw.rounded_rectangle((380, 145, 820, 555), radius=30, fill=(222, 239, 246), outline=cyan, width=5)
-        draw.rectangle((560, 220, 640, 475), fill=(36, 155, 166))
-        draw.rectangle((470, 305, 730, 390), fill=(36, 155, 166))
-        draw.text((475, 565), "HEALTH", fill=white)
-    elif category == "transport":
-        draw.polygon([(120, 460), (1080, 460), (900, 220), (300, 220)], fill=(48, 65, 82))
-        draw.line((600, 245, 600, 450), fill=gold, width=9)
-        for y in (290, 365, 435):
-            draw.line((570, y, 630, y), fill=white, width=5)
-        draw.text((480, 565), "TRANSPORT", fill=white)
     else:
-        # General news visual: globe and newspaper, never a blank title card.
-        draw.ellipse((270, 125, 730, 585), outline=cyan, width=12)
-        draw.arc((380, 125, 620, 585), 0, 360, fill=cyan, width=7)
-        draw.arc((270, 245, 730, 465), 0, 360, fill=cyan, width=7)
-        draw.rounded_rectangle((700, 300, 1040, 535), radius=16, fill=(232, 241, 246), outline=gold, width=5)
-        draw.line((750, 350, 990, 350), fill=(45, 83, 111), width=8)
-        draw.line((750, 395, 980, 395), fill=(45, 83, 111), width=7)
-        draw.line((750, 440, 940, 440), fill=(45, 83, 111), width=7)
-        draw.text((455, 565), "NEWS UPDATE", fill=white)
+        category = "general"
+
+    bg, ink, accent, secondary, paper = themes[category]
+    canvas = Image.new("RGB", (1200, 900), bg)
+    d = ImageDraw.Draw(canvas)
+
+    # Editorial magazine layout: warm paper, oversized colour fields, restrained details.
+    d.rectangle((0, 0, 1200, 18), fill=accent)
+    d.ellipse((785, -180, 1320, 355), fill=secondary)
+    d.ellipse((905, -105, 1285, 275), fill=bg)
+    d.ellipse((1000, 65, 1140, 205), fill=accent)
+    d.rounded_rectangle((55, 48, 1145, 830), radius=30, fill=paper, outline=(222, 211, 190), width=2)
 
     font_candidates = [
         os.getenv("NEWS_FONT_PATH", ""),
@@ -521,33 +466,119 @@ def create_fallback_news_graphic(title, summary=""):
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
     ]
-    font_path = next((p for p in font_candidates if p and os.path.isfile(p)), None)
-    try:
-        headline_font = ImageFont.truetype(font_path, 43) if font_path else ImageFont.load_default()
-        label_font = ImageFont.truetype(font_path, 23) if font_path else ImageFont.load_default()
-    except OSError:
-        headline_font = label_font = ImageFont.load_default()
+    regular_candidates = [
+        os.getenv("NEWS_FONT_PATH", ""),
+        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    ]
+    def font_from(paths, size):
+        for path in paths:
+            if path and os.path.isfile(path):
+                try:
+                    return ImageFont.truetype(path, size)
+                except OSError:
+                    pass
+        return ImageFont.load_default()
 
-    # Headline is a separate lower overlay; the upper half always contains a
-    # category illustration, so provider failure never results in text-only art.
-    draw.rounded_rectangle((42, 650, 1158, 858), radius=28, fill=(5, 16, 33), outline=(64, 117, 153), width=2)
-    draw.text((78, 672), "NAYADRISHTI  •  EDITORIAL ILLUSTRATION", font=label_font, fill=gold)
-    words, lines, line = headline.split(), [], ""
-    for word in words:
-        candidate = (line + " " + word).strip()
-        if draw.textbbox((0, 0), candidate, font=headline_font)[2] <= 1030:
-            line = candidate
-        else:
-            if line:
-                lines.append(line)
-            line = word
-    if line:
-        lines.append(line)
-    y = 715
-    for line in lines[:2]:
-        draw.text((78, y), line, font=headline_font, fill=white)
-        y += 55
-    draw.text((78, 865), "EDITORIAL GRAPHIC — NOT A NEWS PHOTOGRAPH", font=label_font, fill=pale)
+    brand_font = font_from(font_candidates, 38)
+    kicker_font = font_from(regular_candidates, 20)
+    headline_font = font_from(font_candidates, 51)
+    small_font = font_from(font_candidates, 19)
+
+    # Brand masthead and category tag.
+    d.text((92, 83), "NayaDrishti", font=brand_font, fill=ink)
+    d.text((94, 132), "नयाँ दृष्टि, नयाँ खबर।", font=kicker_font, fill=accent)
+    d.rounded_rectangle((92, 180, 245, 188), radius=4, fill=accent)
+    d.rounded_rectangle((92, 220, 320, 266), radius=18, fill=ink)
+    d.text((112, 230), category.upper() + "  /  NEWS", font=small_font, fill=paper)
+
+    # Large topic emblem, drawn as a clean editorial symbol rather than fake reportage.
+    cx, cy = 875, 430
+    d.ellipse((650, 245, 1095, 690), fill=bg, outline=(225, 215, 196), width=3)
+    if category == "cricket":
+        d.ellipse((760, 330, 1000, 570), fill=(65, 112, 76), outline=ink, width=5)
+        d.rectangle((865, 355, 895, 545), fill=(205, 166, 111), outline=ink, width=3)
+        d.line((825, 525, 845, 525), fill=paper, width=7)
+        d.line((915, 525, 935, 525), fill=paper, width=7)
+        d.ellipse((950, 390, 1000, 440), fill=(177, 56, 48), outline=paper, width=4)
+        for x in (820, 850, 880):
+            d.line((x, 470, x, 550), fill=paper, width=8)
+    elif category == "football":
+        d.ellipse((755, 310, 995, 550), fill=(247, 245, 231), outline=ink, width=6)
+        d.polygon([(875, 365), (925, 402), (906, 462), (844, 462), (825, 402)], fill=ink)
+        d.line((875, 365, 875, 330), fill=accent, width=5)
+        d.arc((775, 330, 975, 530), 20, 155, fill=accent, width=6)
+    elif category == "education":
+        d.polygon([(735, 405), (875, 330), (1015, 405)], fill=accent)
+        d.rectangle((755, 405, 995, 535), fill=(225, 210, 177), outline=ink, width=4)
+        for x in (790, 855, 920):
+            d.rectangle((x, 430, x + 38, 480), fill=paper, outline=ink, width=2)
+        d.polygon([(810, 565), (875, 520), (940, 565), (875, 605)], fill=secondary, outline=ink)
+    elif category == "weather":
+        d.ellipse((760, 360, 920, 520), fill=secondary)
+        d.ellipse((835, 320, 1010, 510), fill=secondary)
+        d.ellipse((900, 380, 1040, 520), fill=secondary)
+        d.rectangle((815, 435, 990, 520), fill=secondary)
+        for x in (810, 875, 940):
+            d.line((x, 530, x - 22, 585), fill=accent, width=9)
+    elif category in ("politics", "business"):
+        d.polygon([(735, 405), (875, 335), (1015, 405)], fill=accent)
+        d.rectangle((755, 405, 995, 535), fill=(221, 208, 181), outline=ink, width=4)
+        for x in (790, 850, 910, 970):
+            d.rectangle((x, 430, x + 20, 530), fill=paper, outline=ink, width=2)
+        d.rectangle((735, 535, 1015, 552), fill=secondary)
+    elif category == "health":
+        d.rounded_rectangle((785, 310, 965, 555), radius=24, fill=(226, 237, 220), outline=ink, width=5)
+        d.rectangle((850, 355, 900, 510), fill=accent)
+        d.rectangle((800, 407, 950, 457), fill=accent)
+    elif category == "transport":
+        d.polygon([(740, 520), (830, 350), (920, 350), (1010, 520)], fill=(95, 99, 92))
+        d.line((875, 380, 875, 510), fill=paper, width=8)
+        d.line((820, 480, 930, 480), fill=secondary, width=6)
+    elif category == "technology":
+        d.rounded_rectangle((790, 300, 960, 565), radius=25, fill=ink, outline=accent, width=6)
+        d.rounded_rectangle((810, 330, 940, 515), radius=12, fill=(222, 220, 204))
+        d.ellipse((865, 530, 885, 550), fill=secondary)
+        d.line((830, 380, 920, 380), fill=accent, width=6)
+        d.line((830, 415, 900, 415), fill=ink, width=5)
+    elif category == "entertainment":
+        d.ellipse((755, 320, 995, 560), fill=accent, outline=ink, width=5)
+        d.polygon([(845, 380), (845, 500), (940, 440)], fill=paper)
+    else:
+        d.ellipse((755, 315, 995, 555), outline=accent, width=12)
+        d.arc((805, 315, 945, 555), 0, 360, fill=ink, width=6)
+        d.arc((755, 375, 995, 495), 0, 360, fill=ink, width=6)
+        d.ellipse((855, 415, 895, 455), fill=secondary)
+
+    # Headline block: automatic font reduction and safe wrapping prevent clipped text.
+    d.line((92, 610, 1108, 610), fill=(218, 207, 187), width=2)
+    d.rectangle((92, 640, 101, 755), fill=accent)
+    max_width, max_lines = 960, 3
+    chosen_font, lines = headline_font, []
+    for size in (51, 46, 41, 36, 32):
+        chosen_font = font_from(font_candidates, size)
+        lines, current = [], ""
+        for word in headline.split():
+            candidate = (current + " " + word).strip()
+            if d.textbbox((0, 0), candidate, font=chosen_font)[2] <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        if len(lines) <= max_lines:
+            break
+    y = 635
+    line_height = 57 if chosen_font.size >= 46 else 49
+    for line in lines[:max_lines]:
+        d.text((125, y), line, font=chosen_font, fill=ink)
+        y += line_height
+
+    d.text((92, 780), "EDITORIAL GRAPHIC  •  NOT A NEWS PHOTOGRAPH", font=small_font, fill=accent)
+    d.text((1108, 780), "NAYADRISHTI", font=small_font, fill=ink, anchor="ra")
     output = io.BytesIO()
-    canvas.save(output, format="JPEG", quality=91, optimize=True)
+    canvas.save(output, format="JPEG", quality=94, optimize=True)
     return output.getvalue()
