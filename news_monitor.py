@@ -107,15 +107,35 @@ def _is_fresh_entry(item, max_age_hours=24):
         return False, f"older than {max_age_hours} hours"
     return True, ""
 def fetch_feed(url):
-    response = requests.get(
+    """Fetch an RSS feed with bounded retries for temporary rate limits/server errors."""
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=1,
+        status=2,
+        backoff_factor=1.0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET"]),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    response = session.get(
         url,
-        headers={"User-Agent": "NayaDrishtiAI/1.0 (+RSS feed reader)"},
-        timeout=(8, 20),
+        headers={"User-Agent": "Mozilla/5.0 (compatible; NayaDrishtiAI/1.0; +RSS reader)"},
+        timeout=(8, 18),
     )
     response.raise_for_status()
     parsed = feedparser.parse(response.content)
     if parsed.bozo and not parsed.entries:
         raise ValueError("The URL did not return a readable RSS/Atom feed.")
+    if not parsed.entries:
+        log.info("Feed returned no entries: %s", url)
     return parsed
 
 
@@ -328,6 +348,7 @@ def check_feeds():
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0, "fallback_graphics_used": 0,
         "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 19,
+        "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
         "visual_references_checked": 0, "feed_details": [],
     }
     if not feeds:
@@ -338,6 +359,7 @@ def check_feeds():
         feed_info = {
             "source": source_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
+            "fresh_candidates": 0, "latest_published": None,
             "sample_titles": [], "error": None,
         }
         try:
@@ -348,6 +370,14 @@ def check_feeds():
                 clean_text(entry.get("title"), 140)
                 for entry in parsed.entries[:3] if entry.get("title")
             ]
+            newest_timestamp = max(
+                (_entry_timestamp(entry) or 0 for entry in parsed.entries),
+                default=0,
+            )
+            if newest_timestamp:
+                feed_info["latest_published"] = datetime.fromtimestamp(
+                    newest_timestamp, timezone.utc
+                ).isoformat()
             new_items_from_feed = 0
             # Sort by publisher timestamp and reject stories older than 24 hours.
             # Undated entries are skipped rather than risking stale news.
@@ -388,9 +418,13 @@ def check_feeds():
                 if not fresh:
                     if freshness_reason == "missing publication date":
                         feed_info["undated_skipped"] += 1
+                        result["undated_skipped"] += 1
                     else:
                         feed_info["stale_skipped"] += 1
+                        result["stale_skipped"] += 1
                     continue
+                feed_info["fresh_candidates"] += 1
+                result["fresh_candidates"] += 1
 
                 item_id = hashlib.sha256((source_name + "|" + link).encode("utf-8")).hexdigest()
                 if already_seen(item_id) or already_seen_title(title):
