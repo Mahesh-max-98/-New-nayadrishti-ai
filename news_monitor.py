@@ -188,16 +188,25 @@ def check_feeds():
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0,
         "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 3,
-        "visual_references_checked": 0,
+        "visual_references_checked": 0, "feed_details": [],
     }
     if not feeds:
         result["errors"].append("NEWS_FEEDS is empty or invalid. Add RSS/Atom feed URLs in Render.")
         return result
 
     for source_name, feed_url in feeds:
+        feed_info = {
+            "source": source_name, "entries_found": 0, "new_items": 0,
+            "already_seen": 0, "sample_titles": [], "error": None,
+        }
         try:
             parsed = fetch_feed(feed_url)
             result["feeds_checked"] += 1
+            feed_info["entries_found"] = len(parsed.entries)
+            feed_info["sample_titles"] = [
+                clean_text(entry.get("title"), 140)
+                for entry in parsed.entries[:3] if entry.get("title")
+            ]
             new_items_from_feed = 0
             # Scan up to 30 recent entries so older seen stories do not hide newer ones.
             # Limit each feed to 1 new draft per run to control free-tier AI usage.
@@ -210,6 +219,7 @@ def check_feeds():
                 item_id = hashlib.sha256((source_name + "|" + link).encode("utf-8")).hexdigest()
                 if already_seen(item_id) or already_seen_title(title):
                     result["already_seen"] += 1
+                    feed_info["already_seen"] += 1
                     continue
 
                 summary = write_summary(title=title, description=description,
@@ -294,12 +304,16 @@ def check_feeds():
                 set_draft_status(item_id, status)
                 remember(item_id, title, source_name, link, status)
                 result["new_items"] += 1
+                feed_info["new_items"] += 1
                 new_items_from_feed += 1
                 if new_items_from_feed >= 1:
                     break
         except Exception as exc:
             log.exception("Feed processing failed for %s", source_name)
+            feed_info["error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
             result["errors"].append(f"{source_name}: {type(exc).__name__}: {str(exc)[:220]}")
+        finally:
+            result["feed_details"].append(feed_info)
 
     result["facebook_publishing_enabled"] = (
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
