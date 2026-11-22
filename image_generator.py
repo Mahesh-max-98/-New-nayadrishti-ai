@@ -578,10 +578,15 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     visual_plan = researched_plan or visual_brief or _visual_direction(title, description, summary)
     matched, review_note = _check_visual_match(raw, title, description, visual_plan)
     if not matched and str(review_note).startswith("QA_UNAVAILABLE:"):
-        raise RuntimeError(
-            "Visual QA is unavailable; generated image was not approved. "
-            + str(review_note)[len("QA_UNAVAILABLE:"):].strip()
+        # Never pass an unverified AI image through as approved. When the
+        # vision reviewer is rate-limited, return a locally rendered,
+        # clearly labelled editorial graphic instead of failing the Studio.
+        import logging
+        logging.getLogger("nayadrishti.images").warning(
+            "AI image could not be verified; using labelled local editorial graphic: %s",
+            str(review_note)[:180],
         )
+        return create_fallback_news_graphic(title, summary)
     if not matched:
         if _qa_retry < 1:
             correction = (
