@@ -274,10 +274,10 @@ def _research_visual_plan(title, description, summary, research_context=""):
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a story-specific Cloudflare prompt within its 2,048-character limit."""
-    headline = re.sub(r"\\s+", " ", (title or "").strip())[:240]
-    facts = re.sub(r"\\s+", " ", (description or "").strip())[:650]
-    post = re.sub(r"\\s+", " ", (summary or "").strip())[:180]
-    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:600]
+    headline = re.sub(r"\s+", " ", (title or "").strip())[:240]
+    facts = re.sub(r"\s+", " ", (description or "").strip())[:650]
+    post = re.sub(r"\s+", " ", (summary or "").strip())[:180]
+    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:600]
     direction = _visual_direction(headline, facts, post, brief)[:180]
 
     # Keep the factual story context first, then reserve room for the complete
