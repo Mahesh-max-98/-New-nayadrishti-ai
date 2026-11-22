@@ -264,7 +264,7 @@ def _research_visual_plan(title, description, summary, research_context=""):
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
     prompt = (
         "You are the visual editor of a fact-checking Nepali newsroom.\n"
-        "Read the headline three separate times before planning. Pass 1: identify the exact subject. Pass 2: identify the actual action/event and any named place. Pass 3: identify what the headline does NOT claim. Reconcile all three passes.\\n"
+        "Read the headline three separate times before planning. Pass 1: identify the exact subject. Pass 2: identify the actual action/event and any named place. Pass 3: identify what the headline does NOT claim. Reconcile all three passes.\n"
         "Create one highly specific visual production plan for THIS story only.\n"
         "Use the full article as primary evidence; research leads are secondary context, never proof.\n"
         "The scene must be selected from this headline and article, not from a reusable newsroom template.\n"
