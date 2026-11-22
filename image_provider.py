@@ -16,7 +16,7 @@ CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-9b"
 MAX_REFERENCE_IMAGES = 4
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-REFERENCE_MAX_EDGE = 512
+REFERENCE_MAX_EDGE = 511
 REQUEST_TIMEOUT = (20, 180)
 
 
