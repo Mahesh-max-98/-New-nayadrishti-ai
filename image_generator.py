@@ -401,7 +401,7 @@ def _check_visual_match(raw_image, title, description, visual_plan):
         try:
             return _check_with_horde_caption(raw_image, visual_plan)
         except Exception as backup_exc:
-            return False, "QA_UNAVAILABLE: Groq key missing and free AI Horde caption review unavailable"
+            return False, "QA_UNAVAILABLE: Groq key missing; AI Horde caption review failed (" + str(backup_exc)[:180] + ")"
     try:
         with Image.open(io.BytesIO(raw_image)) as source_image:
             normalized = io.BytesIO()
@@ -454,7 +454,7 @@ def _check_visual_match(raw_image, title, description, visual_plan):
             return _check_with_horde_caption(raw_image, visual_plan)
         except Exception as backup_exc:
             logger.warning("AI Horde caption QA also unavailable: %s", backup_exc)
-            return False, "QA_UNAVAILABLE: Groq Vision and free AI Horde caption review unavailable"
+            return False, "QA_UNAVAILABLE: Groq Vision failed (" + str(exc)[:100] + "); AI Horde caption review failed (" + str(backup_exc)[:180] + ")"
 
 def generate_news_image(title, description="", summary="", visual_brief="", _qa_retry=0):
     """Research the article, then generate a specific editorial illustration."""
@@ -679,7 +679,7 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
         raise RuntimeError(
             "AI image was generated but could not be quality-checked because the free "
             "vision reviewer is temporarily rate-limited. No unverified image was approved. "
-            "Please retry later."
+            "Reviewer details: " + str(review_note)[len("QA_UNAVAILABLE:"):][:220]
         )
     if not matched:
         if _qa_retry < 1:
