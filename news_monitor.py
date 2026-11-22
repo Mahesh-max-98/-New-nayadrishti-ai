@@ -36,46 +36,43 @@ class _ImageMetaParser(HTMLParser):
 
 
 def configured_feeds():
+    """Use the three requested priority sources; Google News is discovery only."""
     raw = os.getenv("NEWS_FEEDS", "")
     feeds = []
+    allowed = ("neb", "routine of nepal banda", "ronb", "troll cricket")
     for part in raw.split("|"):
         if "=" not in part:
             continue
         name, url = part.split("=", 1)
         name, url = name.strip(), url.strip()
-        if name and url.startswith(("https://", "http://")):
+        if (
+            name and url.startswith(("https://", "http://"))
+            and any(term in name.lower() for term in allowed)
+        ):
             feeds.append((name, url))
-    # NEB Result & News is a high-relevance education/results publisher.
-    # Its RSS feed is machine-readable; Facebook posts remain discovery leads only.
-    feeds.append(("NEB Result & News", "https://nebnews.net/feed/"))
-    feeds.append(("The Kathmandu Post", "https://kathmandupost.com/rss"))
-    # Add Google News RSS discovery alongside configured publishers.
-    # Results are discovery leads, not independent verification.
+
+    # Always include the official NEB feed; avoid adding it twice.
+    neb_url = "https://nebnews.net/feed/"
+    if not any(url.rstrip("/") == neb_url.rstrip("/") for _, url in feeds):
+        feeds.append(("NEB News and Result", neb_url))
+
+    # Google News RSS is used only to discover recent posts from the two
+    # requested social/news sources. It is not treated as the original publisher.
     google_queries = [
-        ("Google News - Nepal", "Nepal news when:1d", "en", "NP", "NP:en"),
-        ("Google News - Nepal Nepali", "नेपाल समाचार when:1d", "ne", "NP", "NP:ne"),
-        ("Google News - NEB Result & News", '"NEB Result & News" OR NEB result Nepal when:1d', "en", "NP", "NP:en"),
-        ("Google News - NEB Nepali", 'NEB नतिजा OR कक्षा १२ नतिजा OR SEE result when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d', "en", "NP", "NP:en"),
-        ("Google News - BBC News Nepali", 'site:bbc.com/nepali OR "BBC News नेपाली" Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - eKantipur", 'site:ekantipur.com Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - Onlinekhabar", 'site:onlinekhabar.com Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - Setopati", 'site:setopati.com Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - Ratopati", 'site:ratopati.com Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - Nepal News", 'site:nepalnews.com Nepal when:1d', "en", "NP", "NP:en"),
-        ("Google News - Nagarik News", 'site:nagariknews.nagariknetwork.com Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Google News - myRepublica", 'site:myrepublica.nagariknetwork.com Nepal when:1d', "en", "NP", "NP:en"),
-        ("Google News - The Himalayan Times", 'site:thehimalayantimes.com Nepal when:1d', "en", "NP", "NP:en"),
-        ("Google News - Annapurna Post", 'site:annapurnapost.com Nepal when:1d', "ne", "NP", "NP:ne"),
-        ("Laliguras Media Network", 'site:laligurash.com when:1d -site:youtube.com -site:youtu.be', "ne", "NP", "NP:ne"),
-        ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:1d", "en", "NP", "NP:en"),
-        ("Google News - World", "world breaking news when:1d", "en", "US", "US:en"),
-        ("Google News - Football", "football soccer latest when:1d", "en", "GB", "GB:en"),
+        ("Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d', "en", "NP", "NP:en"),
+        ("Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d', "en", "NP", "NP:en"),
     ]
     for source_name, query, language, country, edition in google_queries:
         params = urlencode({"q": query, "hl": language, "gl": country, "ceid": edition})
         feeds.append((source_name, "https://news.google.com/rss/search?" + params))
-    return feeds
+    # De-duplicate configured URLs while preserving order.
+    unique = []
+    seen_urls = set()
+    for name, url in feeds:
+        if url not in seen_urls:
+            unique.append((name, url))
+            seen_urls.add(url)
+    return unique
 
 
 def clean_text(value, max_length=5000):
@@ -347,7 +344,7 @@ def check_feeds():
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0, "fallback_graphics_used": 0,
-        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 19,
+        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 2,
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
         "visual_references_checked": 0, "feed_details": [],
     }
@@ -430,59 +427,6 @@ def check_feeds():
                 if already_seen(item_id) or already_seen_title(title):
                     result["already_seen"] += 1
                     feed_info["already_seen"] += 1
-                    retry_draft = get_draft_for_image_retry(item_id)
-                    if retry_draft:
-                        try:
-                            retry_article_text = fetch_article_text(link, description)
-                            retry_research = research_story(title, retry_article_text)
-                            retry_visual_brief = " ".join(
-                                part for part in (
-                                    "Corroborating news leads: " + retry_research.get("news_context", "") if retry_research.get("news_context") else "",
-                                    "Checked visual reference: " + retry_research.get("visual_reference", "") if retry_research.get("visual_reference") else "",
-                                ) if part
-                            )
-                            retry_image = generate_news_image(
-                                title, retry_article_text, retry_draft["summary"],
-                                visual_brief=retry_visual_brief[:1200],
-                            )
-                            save_draft(
-                                item_id, title, source_name, link,
-                                retry_draft["summary"], image_data=retry_image,
-                                image_status="ai_illustration", image_error=None,
-                            )
-                            result.setdefault("images_retried", 0)
-                            result["images_retried"] += 1
-                            log.info("Recovered missing image for previously saved story: %s", title)
-                        except Exception as retry_exc:
-                            retry_message = str(retry_exc).lower()
-                            if "daily free" in retry_message or "temporarily paused" in retry_message:
-                                log.info("AI image quota is paused; using the free branded fallback for: %s", title)
-                            else:
-                                log.warning("Image retry provider unavailable for %s: %s", title, retry_exc)
-                            try:
-                                fallback_image = create_fallback_news_graphic(
-                                    title, retry_draft["summary"]
-                                )
-                                save_draft(
-                                    item_id, title, source_name, link,
-                                    retry_draft["summary"], image_data=fallback_image,
-                                    image_status="fallback_graphic",
-                                    image_error=f"{type(retry_exc).__name__}: {str(retry_exc)[:300]}",
-                                )
-                                result.setdefault("fallback_graphics_used", 0)
-                                result["fallback_graphics_used"] += 1
-                                log.info("Recovered missing image with a labelled fallback graphic: %s", title)
-                            except Exception as fallback_exc:
-                                save_draft(
-                                    item_id, title, source_name, link,
-                                    retry_draft["summary"], image_data=None,
-                                    image_status="failed",
-                                    image_error=f"{type(fallback_exc).__name__}: {str(fallback_exc)[:350]}",
-                                )
-                                result.setdefault("image_retry_errors", [])
-                                result["image_retry_errors"].append(
-                                    f"{source_name}: {type(fallback_exc).__name__}: {str(fallback_exc)[:180]}"
-                                )
                     continue
 
                 # Prefer the article body over short RSS teaser text so the summary
@@ -607,76 +551,14 @@ def check_feeds():
             result["feed_details"].append(feed_info)
 
 
-    # Retry image generation from the database queue on every feed check.
-    # This also works when a publisher has removed an older story from its RSS feed.
-    try:
-        retry_candidates = get_drafts_needing_image_retry(
-            limit=int(os.getenv("IMAGE_RETRY_BATCH_SIZE", "2"))
-        )
-        for retry_draft in retry_candidates:
-            item_id = retry_draft["item_id"]
-            title = retry_draft["title"]
-            source_name = retry_draft.get("source") or "News source"
-            link = retry_draft.get("url") or ""
-            try:
-                article_text = fetch_article_text(link, title + " " + retry_draft["summary"])
-                retry_research = research_story(title, article_text)
-                retry_visual_brief = " ".join(
-                    part for part in (
-                        "Corroborating news leads: " + retry_research.get("news_context", "") if retry_research.get("news_context") else "",
-                        "Checked visual reference: " + retry_research.get("visual_reference", "") if retry_research.get("visual_reference") else "",
-                    ) if part
-                )
-                image_data = generate_news_image(
-                    title, article_text, retry_draft["summary"],
-                    visual_brief=retry_visual_brief[:1200],
-                )
-                save_draft(
-                    item_id, title, source_name, link, retry_draft["summary"],
-                    image_data=image_data, image_status="ai_illustration",
-                    image_error=None,
-                )
-                result.setdefault("images_retried", 0)
-                result["images_retried"] += 1
-                log.info("Background image retry succeeded for draft: %s", title)
-            except Exception as image_exc:
-                log.warning(
-                    "Background image retry failed for %s: %s",
-                    title, image_exc,
-                )
-                try:
-                    fallback_image = create_fallback_news_graphic(
-                        title, retry_draft["summary"]
-                    )
-                    save_draft(
-                        item_id, title, source_name, link, retry_draft["summary"],
-                        image_data=fallback_image,
-                        image_status="fallback_graphic",
-                        image_error=f"{type(image_exc).__name__}: {str(image_exc)[:300]}",
-                    )
-                    result["fallback_graphics_used"] += 1
-                except Exception as fallback_exc:
-                    save_draft(
-                        item_id, title, source_name, link, retry_draft["summary"],
-                        image_data=None, image_status="failed",
-                        image_error=f"{type(fallback_exc).__name__}: {str(fallback_exc)[:300]}",
-                    )
-                    result.setdefault("image_retry_errors", []).append(
-                        f"{source_name}: {type(fallback_exc).__name__}: {str(fallback_exc)[:160]}"
-                    )
-    except Exception as retry_queue_exc:
-        log.exception("Background image retry queue failed")
-        result.setdefault("errors", []).append(
-            "Image retry queue: "
-            + f"{type(retry_queue_exc).__name__}: {str(retry_queue_exc)[:180]}"
-        )
-
+    # Image retries are deliberately excluded from feed discovery. They must not
+    # delay fresh-news checks; regenerate images only when explicitly requested.
 
     result["facebook_publishing_enabled"] = (
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        " Eighteen Google News RSS discovery feeds cover Nepal English/Nepali, NEB Result & News, RONB, BBC Nepali, eKantipur, Onlinekhabar, Setopati, Ratopati, Nepal News, Nagarik, myRepublica, The Himalayan Times, Annapurna Post, cricket, world and football; direct publisher RSS feeds include NEB Result & News and The Kathmandu Post. Facebook page references are discovery leads only; stories are rewritten from original reporting and corroborated where possible. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
+        " Three priority sources are monitored: NEB News and Result, Routine of Nepal Banda, and Troll Cricket Nepal. Google News RSS is used only as a discovery index for the latter two, not as the original publisher. Stories are rewritten from available source reporting and only items published within the last 24 hours with a valid timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
         "through Google Images only when Google Custom Search credentials are configured; "
         "otherwise the story headline and reporting context guide the illustration. "
         "Visual-reference images are never republished. Publisher photos are used only when their article "
