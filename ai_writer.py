@@ -21,18 +21,19 @@ is unclear, omit it. Do not claim you opened or independently verified the link.
 
 STRICT OUTPUT RULES:
 - Write Nepali first, then English.
-- Keep the ENTIRE post to 3-4 short lines total.
+- Keep the ENTIRE post to 3-6 short lines total (4 lines is preferred).
 - Line 1: a short Nepali headline with one relevant emoji.
 - Line 2: one short Nepali sentence with the key update.
 - Line 3: a short English headline with one relevant emoji.
 - Line 4: one short English sentence faithfully translating the Nepali update.
+- If one extra essential detail is needed, add at most 2 short lines; never exceed 6 total lines.
 - Keep each sentence concise. Do not add background or extra details.
 - Use natural, correct Nepali and clear, simple English.
 - Include 2 relevant emojis in every post: one in each headline.
 - Do NOT show the source name, source label, article URL, "Read more", credits,
   hashtags, greetings, explanations, or extra commentary.
 - Do not use markdown dividers or bullet points.
-- Return only the finished post, with no blank lines.
+- Return only the finished post, with no blank lines. Do not add unsupported context just to fill lines.
 
 SUPPLIED INFORMATION (for fact-checking and writing only; do not display source):
 Source name: {source_name}
