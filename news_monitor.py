@@ -226,6 +226,78 @@ def fetch_permitted_publisher_photo(item, article_url):
     return None
 
 
+
+class _ArticleTextParser(HTMLParser):
+    """Extract readable article paragraphs without scripts, navigation or markup."""
+    SKIP_TAGS = {"script", "style", "noscript", "svg", "header", "footer", "nav", "aside"}
+
+    def __init__(self):
+        super().__init__()
+        self.skip_depth = 0
+        self.in_paragraph = 0
+        self.parts = []
+        self.current = []
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in self.SKIP_TAGS:
+            self.skip_depth += 1
+        elif not self.skip_depth and tag == "p":
+            self.in_paragraph += 1
+            self.current = []
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in self.SKIP_TAGS and self.skip_depth:
+            self.skip_depth -= 1
+        elif not self.skip_depth and tag == "p" and self.in_paragraph:
+            paragraph = re.sub(r"\\s+", " ", " ".join(self.current)).strip()
+            if len(paragraph) >= 45:
+                self.parts.append(paragraph)
+            self.in_paragraph -= 1
+            self.current = []
+
+    def handle_data(self, data):
+        if not self.skip_depth and self.in_paragraph:
+            value = data.strip()
+            if value:
+                self.current.append(value)
+
+
+def fetch_article_text(article_url, fallback_description=""):
+    """Fetch a bounded amount of article text to avoid summaries based on RSS teasers alone."""
+    if not article_url.startswith(("https://", "http://")):
+        return clean_text(fallback_description, 5000)
+    try:
+        response = requests.get(
+            article_url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; NayaDrishtiAI/1.0; +news-summary)"},
+            timeout=(7, 12),
+            stream=True,
+        )
+        response.raise_for_status()
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" not in content_type:
+            return clean_text(fallback_description, 5000)
+        chunks, total = [], 0
+        for chunk in response.iter_content(32768):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= 900_000:
+                break
+        encoding = response.encoding or "utf-8"
+        parser = _ArticleTextParser()
+        parser.feed(b"".join(chunks).decode(encoding, errors="ignore"))
+        article_text = " ".join(parser.parts)
+        if len(article_text) >= 180:
+            return clean_text(article_text, 5000)
+    except Exception as exc:
+        log.info("Article text extraction unavailable for %s: %s", article_url, exc)
+    return clean_text(fallback_description, 5000)
+
+
 def check_feeds():
     feeds = configured_feeds()
     result = {
@@ -326,7 +398,10 @@ def check_feeds():
                                 )
                     continue
 
-                summary = write_summary(title=title, description=description,
+                # Prefer the article body over short RSS teaser text so the summary
+                # describes the actual development rather than announcing the publisher.
+                article_text = fetch_article_text(link, description)
+                summary = write_summary(title=title, description=article_text,
                                         source_name=source_name, article_url=link)
                 if not summary:
                     raise ValueError("Groq returned an empty news post.")
