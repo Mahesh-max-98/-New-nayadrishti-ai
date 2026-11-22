@@ -473,7 +473,8 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     last_error = None
 
     # If Cloudflare has already reported its daily quota exhausted, skip it.
-    if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+    if os.getenv("IMAGE_GENERATION_PROVIDER", "free").strip().lower() in ("free", "ai_horde", "horde") or time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+        # Free-only mode deliberately bypasses Cloudflare so no paid provider is called.
         raw = try_ai_horde()
     else:
         account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
