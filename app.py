@@ -134,7 +134,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="AI-generated editorial illustration for this news draft">
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
-<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else (d.image_status or 'pending')) }}</div><p>{{ d.summary }}</p>
+<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div><p>{{ d.summary }}</p>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
 {% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
 </section>{% endif %}</main>
