@@ -50,6 +50,20 @@ def init_db():
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_status TEXT DEFAULT 'pending'")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_error TEXT")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_last_attempt TIMESTAMP")
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS funny_post_jobs (
+            job_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            message TEXT,
+            quote TEXT,
+            image_error TEXT,
+            image_data BYTEA,
+            error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        db.execute("CREATE INDEX IF NOT EXISTS funny_post_jobs_created_idx ON funny_post_jobs(created_at)")
 
 
 def already_seen(item_id):
