@@ -273,33 +273,44 @@ def _research_visual_plan(title, description, summary, research_context=""):
         return ""
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
-    """Build the prompt with the researched event and exact background first."""
-    headline = re.sub(r"\s+", " ", (title or "").strip())[:300]
-    facts = re.sub(r"\s+", " ", (description or "").strip())[:1150]
-    post = re.sub(r"\s+", " ", (summary or "").strip())[:300]
-    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:1250]
-    direction = _visual_direction(headline, facts, post, brief)
-    prompt = (
-        "TOP PRIORITY — THIS STORY'S FACT-LOCKED VISUAL PLAN: " + brief + " "
-        "HEADLINE READ PASS 1: " + headline + " "
-        "HEADLINE READ PASS 2: " + headline + " "
-        "HEADLINE READ PASS 3: " + headline + " "
+    """Build a story-specific Cloudflare prompt within its 2,048-character limit."""
+    headline = re.sub(r"\\s+", " ", (title or "").strip())[:240]
+    facts = re.sub(r"\\s+", " ", (description or "").strip())[:650]
+    post = re.sub(r"\\s+", " ", (summary or "").strip())[:180]
+    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:600]
+    direction = _visual_direction(headline, facts, post, brief)[:180]
+
+    # Keep the factual story context first, then reserve room for the complete
+    # visual-quality and anti-fabrication instructions. Cloudflare FLUX rejects
+    # prompts longer than 2,048 characters.
+    context = (
+        "HEADLINE: " + headline + " "
         "ARTICLE FACTS: " + facts + " "
         "POST: " + post + " "
-        "CATEGORY SAFETY CHECK (secondary only; never override the story plan): " + direction[:250] + " "
-        "Create a premium, highly realistic editorial news photograph-style illustration for THIS exact story. "
-        "Read the headline carefully and extract the exact subject, event, action, and supported location before composing. "
-        "The main subject must be large, clearly recognizable as the reported topic, and visually dominant; use meaningful foreground, midground and background details drawn from the article. "
-        "Make every scene distinct to this story. Never recycle the same city, airport, classroom, office, stadium, generic person-at-desk pose or background across unrelated stories. "
-        "Only show a named location, national flag, uniform, vehicle, building or real-world event detail when the article supports it. "
-        "Use natural documentary photography qualities: realistic daylight or plausible event lighting, lifelike materials and skin texture, accurate anatomy and perspective, crisp focal detail, subtle depth of field, balanced exposure, rich but natural colour, clean edges and professional photojournalistic composition. ""Build a clear visual hierarchy: one unmistakable primary subject occupying roughly half the frame, a meaningful foreground, and a background that identifies this exact story without competing with the subject. ""Use a fresh camera angle and setting appropriate to the article; avoid stock-photo poses, repeated generic locations, empty central space, decorative geometric filler and unnecessary close-up crops. ""Keep important subject details inside the frame with realistic scale, physically plausible lighting and coherent shadows. "
-        "Avoid plastic-looking skin, waxy faces, oversaturated colours, excessive glow, artificial HDR, cartoon styling, blurry subjects, distorted hands and duplicated objects. ""ABSOLUTE TEXT BAN: no readable or pseudo-readable text anywhere in the image. No newspaper, magazine, document, poster, banner, sign, label, screen text, captions, letters, numbers, logos or watermarks. Never depict a newspaper headline. "
-        "Do not fabricate a recognisable face of a real person; use a non-identifiable rear view, silhouette or symbolic composition unless an authentic permitted photo is supplied separately. "
-        "Do not add unrelated people, props, sport equipment, buildings, flags, logos, signs, text, numbers, watermarks, collage panels or activities. "
-        "If the article does not establish a real location or scene, create a detailed, visually compelling symbolic editorial scene specific to the subject instead of guessing. "
-        "This is an AI editorial illustration, not documentary evidence."
+        "ARTICLE-BASED VISUAL PLAN: " + brief + " "
+        "CATEGORY GUIDANCE: " + direction + " "
     )
-    return prompt[:3000]
+    instructions = (
+        "Create a realistic, premium editorial news illustration for this exact story. "
+        "The headline and article are the source of truth. Show one large, unmistakable main subject, "
+        "a meaningful foreground and a story-specific background; use a fresh, natural camera angle, "
+        "plausible lighting, accurate perspective, lifelike materials and balanced natural colours. "
+        "Match the actual event: do not turn a proposal into a confirmed event, a transfer into a match, "
+        "or an arrival into a meeting. Never invent a location, action, crowd, uniform, vehicle, flag, "
+        "logo, date, statistic or identifiable real person's face. If details are uncertain, use a "
+        "specific neutral symbolic scene rather than guessing. No readable or pseudo-readable text, "
+        "letters, numbers, signs, screens, newspapers, documents, captions, logos or watermarks. "
+        "No unrelated props, repeated stock-photo settings, empty centre, decorative filler, "
+        "collage panels, distorted anatomy, plastic skin, excessive glow or oversaturated colours. "
+        "Professional photojournalistic composition. This is an AI editorial illustration, not evidence."
+    )
+    # Leave a safety margin below the API's 2,048-character hard limit.
+    context_budget = 1900 - len(instructions)
+    if context_budget < 200:
+        raise ValueError("Image prompt instructions exceed the safe API length.")
+    context = context[:context_budget]
+    prompt = context + instructions
+    return prompt[:1900]
 
 
 def _check_visual_match(raw_image, title, description, visual_plan):
