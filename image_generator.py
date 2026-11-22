@@ -391,7 +391,11 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
         except Exception as exc:
             last_error = exc
             raw = None
-            if attempt == 0 and time.monotonic() >= _CLOUDFLARE_COOLDOWN_UNTIL:
+            # A daily-quota response is not transient: do not make a second
+            # billable/provider request for the same story.
+            if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+                break
+            if attempt == 0:
                 time.sleep(2)
     if raw is None:
         raise RuntimeError(f"Image generation failed after retry: {last_error}") from last_error
