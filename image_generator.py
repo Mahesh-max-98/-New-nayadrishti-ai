@@ -260,10 +260,10 @@ def _visual_direction(title, description, summary, visual_brief=""):
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build a detailed, headline-faithful editorial photography prompt."""
-    headline = re.sub(r"\\s+", " ", (title or "").strip())[:260]
-    facts = re.sub(r"\\s+", " ", (description or "").strip())[:520]
-    post = re.sub(r"\\s+", " ", (summary or "").strip())[:260]
-    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:320]
+    headline = re.sub(r"\s+", " ", (title or "").strip())[:260]
+    facts = re.sub(r"\s+", " ", (description or "").strip())[:520]
+    post = re.sub(r"\s+", " ", (summary or "").strip())[:260]
+    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:320]
     direction = _visual_direction(headline, facts, post, brief)
 
     # Image models perform better when the story subject and physical scene are
