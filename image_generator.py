@@ -16,12 +16,11 @@ _CLOUDFLARE_COOLDOWN_REASON = ""
 
 
 def _compose_news_card(image, title, summary, ai_generated=False):
-    """Create a consistent NayaDrishti card with a readable headline."""
+    """Render every image in a consistent, premium NayaDrishti editorial identity."""
     image = image.convert("RGB")
     width, height = image.size
-    target_ratio = 1200 / 900
-    ratio = width / height
-    if ratio > target_ratio:
+    target_ratio = 4 / 3
+    if width / height > target_ratio:
         new_width = int(height * target_ratio)
         left = (width - new_width) // 2
         image = image.crop((left, 0, left + new_width, height))
@@ -29,109 +28,103 @@ def _compose_news_card(image, title, summary, ai_generated=False):
         new_height = int(width / target_ratio)
         top = max(0, (height - new_height) // 2)
         image = image.crop((0, top, width, top + new_height))
-    image = image.resize((1200, 900), Image.Resampling.LANCZOS)
+    image = image.resize((1200, 900), Image.Resampling.LANCZOS).convert("RGBA")
 
-    panel_height = 255 if title else 130
+    # Brand palette: midnight navy, clean white, and restrained signal-gold.
+    navy = (7, 18, 36, 238)
+    white = (255, 255, 255, 255)
+    muted = (207, 220, 236, 255)
+    gold = (244, 184, 64, 255)
+    cyan = (55, 190, 210, 255)
+
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    draw_overlay = ImageDraw.Draw(overlay)
-    for y in range(900 - panel_height, 900):
-        alpha = int(20 + 205 * ((y - (900 - panel_height)) / panel_height))
-        draw_overlay.line((0, y, 1200, y), fill=(8, 15, 32, alpha))
-    image = Image.alpha_composite(image.convert("RGBA"), overlay)
+    od = ImageDraw.Draw(overlay)
+    # Soft bottom gradient keeps the story image visible while making headlines readable.
+    for y in range(570, 900):
+        alpha = int(25 + 220 * ((y - 570) / 330))
+        od.line((0, y, 1200, y), fill=(5, 15, 31, alpha))
+    # Slim masthead backdrop gives every post a recognisable brand signature.
+    for y in range(0, 112):
+        alpha = int(205 - 35 * (y / 112))
+        od.line((0, y, 1200, y), fill=(5, 17, 35, alpha))
+    image = Image.alpha_composite(image, overlay)
     draw = ImageDraw.Draw(image)
 
-    # Only AI-created scenes receive this label. Original publisher photos
-    # must not be mislabeled as AI-generated.
-    if ai_generated:
-        label = "AI-GENERATED ILLUSTRATION"
-        label_font = ImageFont.load_default()
-        for path in (
+    def load_font(size, bold=False):
+        candidates = [
             os.getenv("NEWS_FONT_PATH", ""),
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-        ):
+            "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf" if bold else "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        ]
+        for path in candidates:
             if path and os.path.isfile(path):
                 try:
-                    label_font = ImageFont.truetype(path, 25)
-                    break
+                    return ImageFont.truetype(path, size)
                 except OSError:
-                    pass
-        label_box = draw.textbbox((0, 0), label, font=label_font)
-        label_width = label_box[2] - label_box[0]
-        label_height = label_box[3] - label_box[1]
-        badge_padding_x, badge_padding_y = 18, 13
-        badge_right, badge_top = 1200 - 36, 28
-        badge_left = max(24, badge_right - label_width - badge_padding_x * 2)
-        badge_bottom = badge_top + label_height + badge_padding_y * 2
-        draw.rounded_rectangle(
-            (badge_left, badge_top, badge_right, badge_bottom),
-            radius=12, fill=(8, 15, 32, 225)
-        )
-        draw.text(
-            (badge_left + badge_padding_x, badge_top + badge_padding_y - 1),
-            label, font=label_font, fill=(255, 255, 255, 255)
-        )
+                    continue
+        return ImageFont.load_default()
 
-    font_candidates = [
-        os.getenv("NEWS_FONT_PATH", ""),
-        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-    ]
-    font = None
-    for path in font_candidates:
-        if path and os.path.isfile(path):
-            try:
-                font = ImageFont.truetype(path, 43 if title else 42)
-                break
-            except OSError:
-                pass
-    if font is None:
-        font = ImageFont.load_default()
+    brand_font = load_font(42, True)
+    tagline_font = load_font(19, False)
+    headline_font = load_font(49, True)
+    footer_font = load_font(22, True)
+    badge_font = load_font(19, True)
 
-    small_font = ImageFont.load_default()
-    for path in (
-        os.getenv("NEWS_FONT_PATH", ""),
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-    ):
-        if path and os.path.isfile(path):
-            try:
-                small_font = ImageFont.truetype(path, 24)
-                break
-            except OSError:
-                pass
+    # Draw a simple original globe + eye + signal mark (not a copied third-party logo).
+    cx, cy = 62, 55
+    draw.ellipse((cx - 34, cy - 34, cx + 34, cy + 34), outline=cyan, width=4)
+    draw.arc((cx - 20, cy - 34, cx + 20, cy + 34), 0, 360, fill=cyan, width=2)
+    draw.arc((cx - 34, cy - 18, cx + 34, cy + 18), 0, 360, fill=cyan, width=2)
+    draw.ellipse((cx - 15, cy - 7, cx + 15, cy + 7), outline=white, width=3)
+    draw.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=gold)
+    draw.arc((cx + 13, cy - 40, cx + 48, cy - 5), 205, 315, fill=gold, width=3)
+    draw.arc((cx + 19, cy - 46, cx + 58, cy - 1), 205, 315, fill=gold, width=2)
 
-    margin = 62
-    if title:
-        headline = title.strip()
-        words = headline.split()
-        lines, line = [], ""
-        for word in words:
-            candidate = (line + " " + word).strip()
-            if draw.textbbox((0, 0), candidate, font=font)[2] <= 1060:
-                line = candidate
-            else:
-                if line:
-                    lines.append(line)
-                line = word
-        if line:
-            lines.append(line)
-        for index, line in enumerate(lines[:2]):
-            draw.text((margin, 900 - panel_height + 30 + index * 58), line,
-                      font=font, fill=(255, 255, 255, 255),
-                      stroke_width=1, stroke_fill=(0, 0, 0, 150))
+    draw.text((112, 18), "NayaDrishti", font=brand_font, fill=white,
+              stroke_width=1, stroke_fill=(0, 0, 0, 90))
+    draw.text((115, 68), "A NEW PERSPECTIVE ON EVERY STORY", font=tagline_font, fill=muted)
+    draw.rounded_rectangle((110, 101, 330, 106), radius=2, fill=gold)
 
-    brand_y = 900 - 62
-    draw.text((margin, brand_y), "NayaDrishti", font=small_font,
-              fill=(255, 255, 255, 255))
-    draw.text((margin + 190, brand_y + 2), "A New Perspective on Every Story.",
-              font=small_font, fill=(210, 220, 235, 255))
+    if ai_generated:
+        label = "AI-GENERATED EDITORIAL ILLUSTRATION"
+        bbox = draw.textbbox((0, 0), label, font=badge_font)
+        label_width = bbox[2] - bbox[0]
+        badge_left = max(560, 1164 - label_width - 30)
+        draw.rounded_rectangle((badge_left, 28, 1164, 75), radius=12,
+                               fill=(7, 18, 36, 225), outline=(244, 184, 64, 210), width=2)
+        draw.text((badge_left + 15, 40), label, font=badge_font, fill=white)
+
+    # Headline is limited to two measured lines to avoid clipping or tiny text.
+    headline = re.sub(r"\s+", " ", (title or "").strip())
+    max_width = 1080
+    lines, line = [], ""
+    for word in headline.split():
+        candidate = (line + " " + word).strip()
+        if draw.textbbox((0, 0), candidate, font=headline_font)[2] <= max_width:
+            line = candidate
+        else:
+            if line:
+                lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+    lines = lines[:2]
+    headline_y = 690 if len(lines) <= 1 else 650
+    draw.rounded_rectangle((62, headline_y - 17, 72, 900 - 104),
+                           radius=4, fill=gold)
+    for index, text_line in enumerate(lines):
+        draw.text((96, headline_y + index * 62), text_line, font=headline_font,
+                  fill=white, stroke_width=1, stroke_fill=(0, 0, 0, 150))
+
+    # Footer lockup is consistent across publisher photos and AI illustrations.
+    draw.line((96, 824, 1104, 824), fill=(207, 220, 236, 135), width=1)
+    draw.text((96, 842), "नयाँ दृष्टि, नयाँ खबर।", font=footer_font, fill=gold)
+    draw.text((1104, 847), "NAYADRISHTI", font=badge_font, fill=muted, anchor="ra")
+
     output = io.BytesIO()
-    image.convert("RGB").save(output, format="JPEG", quality=90, optimize=True)
+    image.convert("RGB").save(output, format="JPEG", quality=93, optimize=True)
     return output.getvalue()
-
 
 def create_publisher_news_card(image_bytes, title, summary=""):
     """Brand an authorized publisher photo without changing its subject."""
