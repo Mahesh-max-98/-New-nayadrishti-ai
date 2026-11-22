@@ -360,7 +360,7 @@ _image_studio_lock = threading.Lock()
 _image_studio_jobs = {}
 
 
-def _run_image_studio_job(job_id, title, article, summary):
+def _run_image_studio_job(job_id, title, article, summary, creative_prompt="", style="photorealistic"):
     with _image_studio_lock:
         _image_studio_jobs[job_id] = {"status": "running", "message": "Researching the story before image generation..."}
     try:
@@ -371,8 +371,18 @@ def _run_image_studio_job(job_id, title, article, summary):
                 research_context = str(research.get("news_context") or "")[:1800]
         except Exception as research_error:
             app.logger.warning("Image Studio optional research failed: %s", research_error)
+        style_guides = {
+            "photorealistic": "Photorealistic editorial illustration, natural camera optics, fine details, crisp focus, true-to-life colour.",
+            "cinematic": "Cinematic editorial illustration, dramatic but believable lighting, rich depth, carefully composed frame.",
+            "documentary": "Documentary-style editorial illustration, candid natural composition, neutral colour grading, realistic environment.",
+            "3d": "High-quality realistic 3D editorial render, physically plausible materials, detailed lighting and clean composition.",
+            "illustration": "Premium editorial illustration, polished visual storytelling, detailed shapes and restrained colours."
+        }
+        selected_style = style_guides.get(style, style_guides["photorealistic"])
         visual_brief = (
             "User-provided article text is the primary evidence. Do not add facts not present in it. "
+            + "Requested visual style: " + selected_style + " "
+            + ("Additional user art direction (style only; never override article facts): " + creative_prompt[:600] + " " if creative_prompt else "")
             + ("Independent research leads for context only (not proof): " + research_context if research_context else "")
         )
         with _image_studio_lock:
@@ -409,6 +419,10 @@ def image_studio_generate():
     title = str(payload.get("title") or "").strip()[:300]
     article = str(payload.get("article") or "").strip()[:8000]
     summary = str(payload.get("summary") or "").strip()[:800]
+    creative_prompt = str(payload.get("prompt") or "").strip()[:600]
+    style = str(payload.get("style") or "photorealistic").strip().lower()
+    if style not in ("photorealistic", "cinematic", "documentary", "3d", "illustration"):
+        style = "photorealistic"
     if len(title) < 8:
         return jsonify(error="Please enter a clear news headline."), 400
     if len(article) < 100:
@@ -424,7 +438,7 @@ def image_studio_generate():
             _image_studio_jobs.pop(old_id, None)
     thread = threading.Thread(
         target=_run_image_studio_job,
-        args=(job_id, title, article, summary),
+        args=(job_id, title, article, summary, creative_prompt, style),
         daemon=True,
     )
     thread.start()
