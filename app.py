@@ -140,6 +140,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <p class="small">Hybrid image mode: permitted publisher photo first, free AI-generated editorial illustration second, and a clearly labelled NayaDrishti graphic if image generation is unavailable. AI images are illustrations, not documentary photographs. Facebook auto-publishing remains off for testing.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
+<section class="panel"><h2>Creative tools</h2><p>Generate a separate, story-matched editorial illustration.</p><p><a href="/image-studio">Open NayaDrishti AI Image Studio →</a></p></section>
 <section class="panel"><h2>Publishing status</h2>
 <p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Do not enable until you have reviewed generated text and images.</p></section>
