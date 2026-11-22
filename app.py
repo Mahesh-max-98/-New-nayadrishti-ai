@@ -132,7 +132,6 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <p class="small">Do not enable until you have reviewed generated text and images.</p></section>
 <section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
 {% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
-<div class="small">Source: {{ d.source|replace('Google News - ', '')|replace('Google News – ', '') or 'Original publisher' }} · {{ d.created_at }}</div>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
 {% if d.image_status == 'fallback_graphic' %}<button type="button" onclick="refreshGraphic('{{ d.item_id }}', this)">Refresh graphic design</button><span class="small">Rebuilds this saved graphic using the latest design without using AI credits.</span>{% endif %}
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
