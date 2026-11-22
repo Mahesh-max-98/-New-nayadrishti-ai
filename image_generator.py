@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
 API_BASE = "https://api.cloudflare.com/client/v4/accounts"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Avoid repeatedly calling a quota-exhausted free image endpoint.
 _CLOUDFLARE_COOLDOWN_UNTIL = 0.0
@@ -305,7 +306,7 @@ HEADLINE:
         plan = (choices[0].get("message") or {}).get("content") if choices else ""
         if isinstance(plan, list):
             plan = " ".join(part.get("text", "") for part in plan if isinstance(part, dict))
-        return re.sub(r"\\s+", " ", str(plan or "")).strip()[:1400]
+        return re.sub(r"\s+", " ", str(plan or "")).strip()[:1400]
     except Exception as exc:
         import logging
         logging.getLogger("nayadrishti.images").warning("Detailed visual planning unavailable: %s", exc)
@@ -313,10 +314,10 @@ HEADLINE:
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
     """Build the prompt with the researched event and exact background first."""
-    headline = re.sub(r"\\s+", " ", (title or "").strip())[:300]
-    facts = re.sub(r"\\s+", " ", (description or "").strip())[:1150]
-    post = re.sub(r"\\s+", " ", (summary or "").strip())[:300]
-    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:1250]
+    headline = re.sub(r"\s+", " ", (title or "").strip())[:300]
+    facts = re.sub(r"\s+", " ", (description or "").strip())[:1150]
+    post = re.sub(r"\s+", " ", (summary or "").strip())[:300]
+    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:1250]
     direction = _visual_direction(headline, facts, post, brief)
     prompt = (
         "TOP PRIORITY — FACT-LOCKED ARTICLE VISUAL PLAN: " + brief + " "
@@ -374,9 +375,9 @@ def _check_visual_match(raw_image, title, description, visual_plan):
         if isinstance(answer, list):
             answer = " ".join(part.get("text", "") for part in answer if isinstance(part, dict))
         answer = str(answer or "").strip()
-        if re.search(r"VERDICT\\s*:\\s*PASS\\b", answer, re.I):
+        if re.search(r"VERDICT\s*:\s*PASS\b", answer, re.I):
             return True, answer[:260]
-        if re.search(r"VERDICT\\s*:\\s*RETRY\\b", answer, re.I):
+        if re.search(r"VERDICT\s*:\s*RETRY\b", answer, re.I):
             return False, answer[:260]
         raise RuntimeError("Vision QA returned unclear result: " + answer[:140])
     except Exception as exc:
