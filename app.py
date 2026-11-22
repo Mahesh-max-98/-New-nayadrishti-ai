@@ -524,7 +524,7 @@ def _studio_dimensions(value):
 def _studio_prompt(prompt, style):
     guide = _STUDIO_STYLE_GUIDES.get(style, _STUDIO_STYLE_GUIDES["photorealistic"])
     return (
-        str(prompt).strip() + "\\n\\nVisual direction: " + guide
+        str(prompt).strip() + "\n\nVisual direction: " + guide
         + " Preserve the user's requested subject, action, setting and constraints. "
         + "Do not add captions, watermarks, logos or text unless explicitly requested."
     )
@@ -551,7 +551,7 @@ def _read_reference_uploads(files):
 
 def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, height,
                        references=None, edit_source=None, parent_image_id=None,
-                       enhanced_prompt="", edit_instruction=""):
+                       enhanced_prompt="", edit_instruction="", original_prompt=""):
     with _image_studio_lock:
         _image_studio_jobs[job_id] = {"status": "running", "message": "Preparing your image request..."}
     try:
@@ -569,7 +569,7 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
             conversation_id=conversation_id,
             user_id=owner_id,
             image_bytes=image_bytes,
-            original_prompt=prompt,
+            original_prompt=original_prompt or prompt,
             enhanced_prompt=enhanced_prompt,
             edit_instruction=edit_instruction,
             parent_image_id=parent_image_id,
@@ -596,7 +596,7 @@ def _studio_job_worker(job_id, owner_id, conversation_id, prompt, style, width, 
 
 def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
                       references=None, edit_source=None, parent_image_id=None,
-                      enhanced_prompt="", edit_instruction=""):
+                      enhanced_prompt="", edit_instruction="", original_prompt=""):
     with _image_studio_lock:
         active = sum(1 for item in _image_studio_jobs.values() if item.get("status") in ("queued", "running"))
         if active >= 1:
@@ -606,7 +606,7 @@ def _start_studio_job(owner_id, conversation_id, prompt, style, width, height,
     thread = threading.Thread(
         target=_studio_job_worker,
         args=(job_id, owner_id, conversation_id, prompt, style, width, height,
-              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction),
+              references, edit_source, parent_image_id, enhanced_prompt, edit_instruction, original_prompt),
         daemon=True,
     )
     thread.start()
@@ -689,8 +689,8 @@ def api_generate_image():
             return jsonify(error="Conversation not found."), 404
         add_message(conversation_id, _studio_owner(), "user", prompt)
         job_id = _start_studio_job(
-            _studio_owner(), conversation_id, prompt, style, width, height,
-            refs, enhanced_prompt=enhanced,
+            _studio_owner(), conversation_id, enhanced or prompt, style, width, height,
+            refs, enhanced_prompt=enhanced, original_prompt=prompt,
         )
         if not job_id:
             return jsonify(error="Another image is being generated. Please wait for it to finish."), 429
