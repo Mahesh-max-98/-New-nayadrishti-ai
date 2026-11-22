@@ -169,23 +169,10 @@ def generate_image(prompt, reference_images=None, width=1024, height=768, guidan
 
     if not response.ok:
         detail = re.sub(r"\s+", " ", response.text or "")[:320]
-        if response.status_code in (429, 500, 502, 503, 504):
-            # Best-effort free fallback for text-only generations. It cannot
-            # preserve reference images, so edits never silently switch providers.
-            if not references:
-                try:
-                    return _generate_pollinations_fallback(prompt, width, height)
-                except ImageProviderError as fallback_error:
-                    raise ImageProviderError(
-                        "Cloudflare is unavailable or its free limit was reached. "
-                        "The free Pollinations fallback was also unavailable. "
-                        "No paid provider was used. Try again later. "
-                        + str(fallback_error)[:180]
-                    ) from fallback_error
+        if response.status_code == 429:
             raise ImageProviderError(
-                "Cloudflare is busy or its free limit was reached. Reference-image "
-                "requests cannot use the text-only fallback. No paid provider was used. "
-                "Try again later. " + detail
+                "The image provider is busy or its free daily usage limit has been reached. "
+                "No paid fallback was used. Try again later. " + detail
             )
         if response.status_code in (401, 403):
             raise ImageProviderError(
