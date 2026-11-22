@@ -91,7 +91,7 @@ if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
         coalesce=True,
     )
     scheduler.start()
-    app.logger.info("Automatic news monitoring enabled (minimum interval: 60 seconds).")
+    app.logger.info("Automatic news monitoring enabled (minimum interval: 180 seconds).")
 else:
     app.logger.info("Automatic news monitoring is disabled.")
 
