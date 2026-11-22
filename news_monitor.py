@@ -1,8 +1,10 @@
+import calendar
 import hashlib
 import html
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse, urlencode
 
@@ -46,9 +48,12 @@ def configured_feeds():
     # Add Google News RSS discovery alongside the configured publishers.
     # Results are discovery leads, not independent verification.
     google_queries = [
-        ("Google News - Nepal", "Nepal news when:1d", "ne", "NP", "NP:ne"),
-        ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:2d", "en", "NP", "NP:en"),
-        ("Google News - NEB Education", "NEB Nepal exam result education when:7d", "ne", "NP", "NP:ne"),
+        ("Google News - Nepal", "Nepal news when:1d", "en", "NP", "NP:en"),
+        ("Google News - Nepal Nepali", "नेपाल समाचार when:1d", "ne", "NP", "NP:ne"),
+        ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:1d", "en", "NP", "NP:en"),
+        ("Google News - NEB Education", "NEB Nepal exam result education when:1d", "en", "NP", "NP:en"),
+        ("Google News - World", "world breaking news when:1d", "en", "US", "US:en"),
+        ("Google News - Football", "football soccer latest when:1d", "en", "GB", "GB:en"),
     ]
     for source_name, query, language, country, edition in google_queries:
         params = urlencode({"q": query, "hl": language, "gl": country, "ceid": edition})
@@ -60,6 +65,30 @@ def clean_text(value, max_length=5000):
     value = re.sub(r"<[^>]+>", " ", value or "")
     value = html.unescape(value)
     return re.sub(r"\s+", " ", value).strip()[:max_length]
+
+
+def _entry_timestamp(item):
+    """Return the feed's published/updated time as a UTC timestamp."""
+    parsed = item.get("published_parsed") or item.get("updated_parsed")
+    if not parsed:
+        return None
+    try:
+        return float(calendar.timegm(parsed))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _is_fresh_entry(item, max_age_hours=24):
+    """Reject undated, stale, or implausibly future-dated feed entries."""
+    timestamp = _entry_timestamp(item)
+    if timestamp is None:
+        return False, "missing publication date"
+    age_seconds = datetime.now(timezone.utc).timestamp() - timestamp
+    if age_seconds < -7200:
+        return False, "publication date is more than 2 hours in the future"
+    if age_seconds > max_age_hours * 3600:
+        return False, f"older than {max_age_hours} hours"
+    return True, ""
 def fetch_feed(url):
     response = requests.get(
         url,
@@ -197,7 +226,8 @@ def check_feeds():
     for source_name, feed_url in feeds:
         feed_info = {
             "source": source_name, "entries_found": 0, "new_items": 0,
-            "already_seen": 0, "sample_titles": [], "error": None,
+            "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
+            "sample_titles": [], "error": None,
         }
         try:
             parsed = fetch_feed(feed_url)
@@ -208,14 +238,28 @@ def check_feeds():
                 for entry in parsed.entries[:3] if entry.get("title")
             ]
             new_items_from_feed = 0
-            # Scan up to 30 recent entries so older seen stories do not hide newer ones.
-            # Limit each feed to 1 new draft per run to control free-tier AI usage.
-            for item in parsed.entries[:30]:
+            # Sort by publisher timestamp and reject stories older than 24 hours.
+            # Undated entries are skipped rather than risking stale news.
+            dated_entries = sorted(
+                parsed.entries,
+                key=lambda entry: _entry_timestamp(entry) or 0,
+                reverse=True,
+            )
+            for item in dated_entries[:50]:
                 title = clean_text(item.get("title"), 300)
                 link = (item.get("link") or "").strip()
                 description = clean_text(item.get("summary") or item.get("description") or "")
                 if not title or not link:
                     continue
+
+                fresh, freshness_reason = _is_fresh_entry(item, max_age_hours=24)
+                if not fresh:
+                    if freshness_reason == "missing publication date":
+                        feed_info["undated_skipped"] += 1
+                    else:
+                        feed_info["stale_skipped"] += 1
+                    continue
+
                 item_id = hashlib.sha256((source_name + "|" + link).encode("utf-8")).hexdigest()
                 if already_seen(item_id) or already_seen_title(title):
                     result["already_seen"] += 1
@@ -375,7 +419,7 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        "Three Google News RSS discovery feeds (general Nepal, Nepal cricket, and NEB/education) run alongside configured publishers. Stories are researched with Google News RSS. Visual references are searched "
+        "Six Google News RSS discovery feeds (Nepal English, Nepal Nepali, Nepal cricket, NEB/education, world, and football) run alongside configured publishers. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
         "through Wikimedia Commons by default and checked with Groq vision; existing "
         "Google Custom Search credentials can optionally enable Google Images. Reference "
         "images are never republished. Publisher photos are used only when their article "
