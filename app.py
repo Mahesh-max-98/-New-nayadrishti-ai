@@ -2,10 +2,11 @@ import os
 import base64
 import threading
 import uuid
+import io
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for, Response
+from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for, Response, send_file
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import init_db, get_drafts, get_draft_image, replace_draft_image
@@ -428,6 +429,32 @@ def image_studio_generate():
     )
     thread.start()
     return jsonify(job_id=job_id, status="queued"), 202
+
+
+@app.get("/image-studio/image/<job_id>")
+@login_required
+def image_studio_image(job_id):
+    with _image_studio_lock:
+        job = _image_studio_jobs.get(job_id)
+        encoded = job.get("image") if job and job.get("status") == "done" else None
+    if not encoded:
+        return jsonify(error="The generated image is not available. Please generate it again."), 404
+    image_bytes = base64.b64decode(encoded)
+    return send_file(io.BytesIO(image_bytes), mimetype="image/jpeg", as_attachment=False,
+                     download_name="nayadrishti-editorial-illustration.jpg", max_age=0)
+
+
+@app.get("/image-studio/download/<job_id>")
+@login_required
+def image_studio_download(job_id):
+    with _image_studio_lock:
+        job = _image_studio_jobs.get(job_id)
+        encoded = job.get("image") if job and job.get("status") == "done" else None
+    if not encoded:
+        return jsonify(error="The generated image is not available. Please generate it again."), 404
+    image_bytes = base64.b64decode(encoded)
+    return send_file(io.BytesIO(image_bytes), mimetype="image/jpeg", as_attachment=True,
+                     download_name="nayadrishti-editorial-illustration.jpg", max_age=0)
 
 
 @app.get("/image-studio/status/<job_id>")
