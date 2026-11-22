@@ -251,7 +251,7 @@ class _ArticleTextParser(HTMLParser):
         if tag in self.SKIP_TAGS and self.skip_depth:
             self.skip_depth -= 1
         elif not self.skip_depth and tag == "p" and self.in_paragraph:
-            paragraph = re.sub(r"\\s+", " ", " ".join(self.current)).strip()
+            paragraph = re.sub(r"\s+", " ", " ".join(self.current)).strip()
             if len(paragraph) >= 45:
                 self.parts.append(paragraph)
             self.in_paragraph -= 1
