@@ -16,11 +16,16 @@ def write_summary(title, description, source_name, article_url):
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
+    # Google News is discovery only; extract the original publisher from its title suffix.
+    if source_name.lower().startswith("google news"):
+        match = re.search(r"\\s[-–—]\\s([^|]+)$", str(title or "").strip())
+        if match:
+            source_name = re.sub(r"^The\\s+", "", match.group(1).strip(), flags=re.I)
+
     prompt = f"""
 You are NayaDrishti's careful Nepali news editor.
 
-Create ONE strong, complete Nepali Facebook news headline/lead from the supplied
-article text. It must communicate the actual development in one concise sentence:
+Create a complete Nepali-first Facebook news post from the supplied article text. It must communicate the actual development in one concise sentence:
 the main subject, what happened or is being planned, and the key context (such as
 time, place, number, decision, or next step) whenever those facts are in the text.
 
@@ -36,8 +41,11 @@ STYLE RULES:
 - Append the original publisher credit at the very end in this exact style:
   " - {source_name}"
 - The publisher name must not appear elsewhere in the sentence.
-- Return exactly ONE line: Nepali news sentence + source credit. No English,
-  extra explanation, hashtags, URL, markdown, or blank lines.
+- Return exactly TWO lines:
+  Line 1: the complete Nepali news headline/lead, with one suitable emoji.
+  Line 2: the original English headline exactly as supplied, then " - {source_name}".
+- Do not add a separate description or repeat the news in a third paragraph.
+- No hashtags, URL, markdown, or extra explanation.
 - If the article text is insufficient, do not invent details. Use only confirmed facts.
 
 Publisher: {source_name}
@@ -58,9 +66,9 @@ Article URL: {article_url}
                 {
                     "role": "system",
                     "content": (
-                        "You are a precise Nepali news editor. Follow the one-line Nepali "
-                        "headline format exactly. Return only the finished "
-                        "post, not analysis or explanations."
+                        "You are a precise Nepali news editor. Return exactly two lines: "
+                        "Nepali headline first, original English headline plus publisher "
+                        "credit second. No extra description."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -123,17 +131,13 @@ Article URL: {article_url}
         "सम्बन्धी समाचार प्रकाशित", "समाचार सार्वजनिक गरेको छ",
     )
     lines = [line.strip() for line in result.splitlines() if line.strip()]
-    body = " ".join(lines).strip()
-    for suffix in (f" - {source_name}", f" — {source_name}", f" – {source_name}"):
-        if body.endswith(suffix):
-            body = body[:-len(suffix)].strip()
-            break
-    body = body.splitlines()[0].strip() if body else ""
-    if not body:
-        raise RuntimeError("Generated news headline is empty.")
-    if any(phrase in body.lower() for phrase in generic_phrases):
+    nepali_line = lines[0] if lines else ""
+    english_line = re.sub(r"\\s*[-–—]\\s*[^|]+$", "", str(title or "").strip())
+    if not nepali_line or not english_line:
+        raise RuntimeError("Generated Nepali headline or original English headline is empty.")
+    if any(phrase in nepali_line.lower() for phrase in generic_phrases):
         raise RuntimeError("Generated post contains a generic publisher announcement instead of a news summary.")
-    return f"{body} - {source_name}"
+    return f"{nepali_line}\\n{english_line} - {source_name}"
 
 def write_visual_brief(title, description, source_name):
     """Extract a compact, fact-grounded visual brief for the story image."""
