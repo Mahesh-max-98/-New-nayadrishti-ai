@@ -95,28 +95,10 @@ def _compose_news_card(image, title, summary, ai_generated=False):
                                fill=(7, 18, 36, 225), outline=(244, 184, 64, 210), width=2)
         draw.text((badge_left + 15, 40), label, font=badge_font, fill=white)
 
-    # Headline is limited to two measured lines to avoid clipping or tiny text.
-    headline = re.sub(r"\s+", " ", (title or "").strip())
-    max_width = 1080
-    lines, line = [], ""
-    for word in headline.split():
-        candidate = (line + " " + word).strip()
-        if draw.textbbox((0, 0), candidate, font=headline_font)[2] <= max_width:
-            line = candidate
-        else:
-            if line:
-                lines.append(line)
-            line = word
-    if line:
-        lines.append(line)
-    lines = lines[:2]
-    headline_y = 690 if len(lines) <= 1 else 650
-    draw.rounded_rectangle((62, headline_y - 17, 72, 900 - 104),
-                           radius=4, fill=gold)
-    for index, text_line in enumerate(lines):
-        draw.text((96, headline_y + index * 62), text_line, font=headline_font,
-                  fill=white, stroke_width=1, stroke_fill=(0, 0, 0, 150))
-
+    # Keep the photograph/illustration text-free. The complete news headline
+    # appears once in the Facebook caption above the image; the image supplies
+    # only a story-matched visual.
+    
     # Footer lockup is consistent across publisher photos and AI illustrations.
     draw.line((96, 824, 1104, 824), fill=(207, 220, 236, 135), width=1)
     draw.text((96, 842), "नयाँ दृष्टि, नयाँ खबर।", font=footer_font, fill=gold)
@@ -131,9 +113,7 @@ def create_publisher_news_card(image_bytes, title, summary=""):
     photo = Image.open(io.BytesIO(image_bytes))
     if photo.width < 400 or photo.height < 250:
         raise ValueError("Publisher image is too small for a news card.")
-    lines = [line.strip() for line in (summary or "").splitlines() if line.strip()]
-    headline = lines[2] if len(lines) >= 3 else title
-    return _compose_news_card(photo, headline, summary, ai_generated=False)
+    return _compose_news_card(photo, "", summary, ai_generated=False)
 
 
 def _visual_direction(title, description, summary, visual_brief=""):
@@ -586,32 +566,9 @@ def create_fallback_news_graphic(title, summary=""):
         d.arc((755, 375, 995, 495), 0, 360, fill=ink, width=6)
         d.ellipse((855, 415, 895, 455), fill=secondary)
 
-    # Headline block: automatic font reduction and safe wrapping prevent clipped text.
-    d.line((92, 610, 1108, 610), fill=(218, 207, 187), width=2)
-    d.rectangle((92, 640, 101, 755), fill=accent)
-    max_width, max_lines = 960, 3
-    chosen_font, lines = headline_font, []
-    for size in (51, 46, 41, 36, 32):
-        chosen_font = font_from(font_candidates, size)
-        lines, current = [], ""
-        for word in headline.split():
-            candidate = (current + " " + word).strip()
-            if d.textbbox((0, 0), candidate, font=chosen_font)[2] <= max_width:
-                current = candidate
-            else:
-                if current:
-                    lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
-        if len(lines) <= max_lines:
-            break
-    y = 635
-    line_height = 57 if size >= 46 else 49
-    for line in lines[:max_lines]:
-        d.text((125, y), line, font=chosen_font, fill=ink)
-        y += line_height
-
+    # The Facebook caption carries the complete news headline once.
+    # Keep this fallback as a visual explainer without duplicated headline text.
+    
     d.text((92, 780), "EDITORIAL GRAPHIC  •  NOT A NEWS PHOTOGRAPH", font=small_font, fill=accent)
     d.text((1108, 780), "NAYADRISHTI", font=small_font, fill=ink, anchor="ra")
     output = io.BytesIO()
