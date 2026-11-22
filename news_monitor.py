@@ -355,8 +355,9 @@ def check_feeds():
                     retry_draft = get_draft_for_image_retry(item_id)
                     if retry_draft:
                         try:
+                            retry_article_text = fetch_article_text(link, description)
                             retry_image = generate_news_image(
-                                title, description, retry_draft["summary"]
+                                title, retry_article_text, retry_draft["summary"]
                             )
                             save_draft(
                                 item_id, title, source_name, link,
@@ -411,7 +412,7 @@ def check_feeds():
                 # are visually checked when Google CSE credentials are configured.
                 research = {}
                 try:
-                    research = research_story(title, description)
+                    research = research_story(title, article_text)
                     result["google_news_results"] += len(research.get("news_results", []))
                     result["image_reference_candidates"] += int(research.get("image_candidates", 0))
                     if research.get("visual_reference"):
@@ -445,7 +446,7 @@ def check_feeds():
                             ) if part
                         )
                         image_data = generate_news_image(
-                            title, description, summary,
+                            title, article_text, summary,
                             visual_brief=visual_brief[:900],
                         )
                         image_status = "ai_illustration"
