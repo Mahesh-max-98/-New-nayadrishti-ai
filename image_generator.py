@@ -378,7 +378,7 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
         except Exception as exc:
             last_error = exc
             raw = None
-            if attempt == 0 and "daily free AI allocation" not in str(exc):
+            if attempt == 0 and time.monotonic() >= _CLOUDFLARE_COOLDOWN_UNTIL:
                 time.sleep(2)
     if raw is None:
         raise RuntimeError(f"Image generation failed after retry: {last_error}") from last_error
