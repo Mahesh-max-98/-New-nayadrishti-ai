@@ -91,6 +91,8 @@ def _wrap(draw, text, font, max_width):
     return lines
 
 def _render_quote_photo(photo_bytes, quote):
+    # Keep overlay text compatible with the server fonts; emojis remain optional in the text preview.
+    quote = "".join(ch for ch in quote if ord(ch) <= 0xFFFF and ch not in "\uFE0F")
     with Image.open(io.BytesIO(photo_bytes)) as source:
         image = source.convert("RGB")
     # Square Facebook/Instagram feed image; retain a natural photo background.
@@ -139,5 +141,9 @@ def create_funny_post(topic="", kind="mixed"):
         " Realistic photography, candid natural light, uncluttered composition, visually calm area for readable overlay. "
         "Absolutely no text, typography, letters, captions, logos, watermark, poster layout or cartoon style."
     )
-    photo = generate_image(image_prompt, width=1024, height=1024)
-    return quote, _render_quote_photo(photo, quote)
+    try:
+        photo = generate_image(image_prompt, width=1024, height=1024)
+        return quote, _render_quote_photo(photo, quote), None
+    except ImageProviderError as exc:
+        # Never lose the generated joke when an image provider is temporarily unavailable.
+        return quote, None, str(exc)[:260]
