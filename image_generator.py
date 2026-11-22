@@ -306,8 +306,10 @@ def _check_visual_match(raw_image, title, description, visual_plan):
     """Reject generated images whose subject or background visibly contradicts the article."""
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     enabled = os.getenv("IMAGE_VISUAL_QA_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
-    if not api_key or not enabled:
-        return True, "visual QA not enabled"
+    if not enabled:
+        return True, "visual QA explicitly disabled"
+    if not api_key:
+        return False, "QA_UNAVAILABLE: GROQ_API_KEY is missing; image cannot be verified"
     try:
         with Image.open(io.BytesIO(raw_image)) as source_image:
             normalized = io.BytesIO()
@@ -354,8 +356,8 @@ def _check_visual_match(raw_image, title, description, visual_plan):
         raise RuntimeError("Vision QA returned unclear result: " + answer[:140])
     except Exception as exc:
         import logging
-        logging.getLogger("nayadrishti.images").warning("Visual QA unavailable; article-based prompt retained: %s", exc)
-        return True, "visual QA unavailable"
+        logging.getLogger("nayadrishti.images").warning("Visual QA unavailable; image rejected rather than accepted unverified: %s", exc)
+        return False, "QA_UNAVAILABLE: " + str(exc)[:180]
 
 def generate_news_image(title, description="", summary="", visual_brief="", _qa_retry=0):
     """Research the article, then generate a specific editorial illustration."""
@@ -515,6 +517,11 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     # regeneration with the reviewer's concrete correction; no button is needed.
     visual_plan = researched_plan or visual_brief or _visual_direction(title, description, summary)
     matched, review_note = _check_visual_match(raw, title, description, visual_plan)
+    if not matched and str(review_note).startswith("QA_UNAVAILABLE:"):
+        raise RuntimeError(
+            "Visual QA is unavailable; generated image was not approved. "
+            + str(review_note)[len("QA_UNAVAILABLE:"):].strip()
+        )
     if not matched:
         if _qa_retry < 1:
             correction = (
