@@ -147,6 +147,23 @@ def _visual_direction(title, description, summary, visual_brief=""):
             "or transfer announcement text."
         )
 
+    # Event-level scenes take priority over broad category scenes. In particular,
+    # a proposal to hold elections together is a planning/policy story, not a
+    # photograph of polling day or a claim that voting has been scheduled.
+    if any(term in headline for term in (
+        "election", "elections", "निर्वाचन", "चुनाव", "मतदान",
+    )):
+        return (
+            "ELECTION PLANNING / POLICY STORY: create a realistic editorial scene "
+            "inside a neutral civic planning room. Show a clean desk with two separate "
+            "blank election calendars beside two closed, unmarked ballot boxes and "
+            "a simple planning folder. The composition should communicate officials "
+            "exploring whether two elections could be held in the same period. It is "
+            "NOT polling day and NOT a confirmed election schedule. No voters in a queue, "
+            "no ballots being cast, no party symbols, no flags, no politician likeness, "
+            "no readable dates, no fabricated government document and no text."
+        )
+
     # Headline matches matter most. Supporting text can clarify a story, but
     # generic words such as "result", "team", or "news" must not decide the image.
     categories = [
@@ -537,6 +554,19 @@ def create_fallback_news_graphic(title, summary=""):
         d.rectangle((815, 435, 990, 520), fill=secondary)
         for x in (810, 875, 940):
             d.line((x, 530, x - 22, 585), fill=accent, width=9)
+    elif any(k in low for k in ("election", "elections", "निर्वाचन", "चुनाव", "मतदान")):
+        # Election planning visual: two calendars and two neutral ballot boxes.
+        # This is deliberately not a polling-day scene or a claim of a confirmed date.
+        d.rounded_rectangle((710, 310, 1040, 570), radius=22, fill=(250, 248, 238), outline=ink, width=5)
+        for x, colour in ((750, accent), (900, secondary)):
+            d.rounded_rectangle((x, 350, x + 120, 475), radius=12, fill=paper, outline=ink, width=4)
+            d.rounded_rectangle((x, 350, x + 120, 382), radius=8, fill=colour)
+            for yy in (410, 440):
+                for xx in (x + 22, x + 55, x + 88):
+                    d.rounded_rectangle((xx, yy, xx + 12, yy + 12), radius=3, fill=colour)
+        for x, colour in ((770, accent), (925, secondary)):
+            d.rounded_rectangle((x, 495, x + 85, 555), radius=9, fill=colour, outline=ink, width=4)
+            d.line((x + 18, 508, x + 67, 508), fill=paper, width=5)
     elif category in ("politics", "business"):
         d.polygon([(735, 405), (875, 335), (1015, 405)], fill=accent)
         d.rectangle((755, 405, 995, 535), fill=(221, 208, 181), outline=ink, width=4)
