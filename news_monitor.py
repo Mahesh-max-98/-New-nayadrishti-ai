@@ -45,7 +45,10 @@ def configured_feeds():
         name, url = name.strip(), url.strip()
         if name and url.startswith(("https://", "http://")):
             feeds.append((name, url))
-    # NEB Result & News is a high-relevance education/results publisher. Its WordPress RSS feed is the machine-readable source; Facebook posts are treated as discovery leads, not scraped or copied.\n    feeds.append(("NEB Result & News", "https://nebnews.net/feed/"))\n    # Add Google News RSS discovery alongside the configured publishers.
+    # NEB Result & News is a high-relevance education/results publisher.
+    # Its RSS feed is machine-readable; Facebook posts remain discovery leads only.
+    feeds.append(("NEB Result & News", "https://nebnews.net/feed/"))
+    # Add Google News RSS discovery alongside configured publishers.
     # Results are discovery leads, not independent verification.
     google_queries = [
         ("Google News - Nepal", "Nepal news when:1d", "en", "NP", "NP:en"),
