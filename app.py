@@ -7,8 +7,8 @@ from flask import Flask, jsonify, redirect, render_template_string, request, ses
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import init_db, get_drafts, get_draft_image, replace_draft_image
-from image_generator import create_fallback_news_graphic
-from news_monitor import check_feeds, configured_feeds
+from image_generator import create_fallback_news_graphic, generate_news_image
+from news_monitor import check_feeds, configured_feeds, fetch_article_text
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
@@ -133,7 +133,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
 {% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
-{% if d.image_status == 'fallback_graphic' %}<button type="button" onclick="refreshGraphic('{{ d.item_id }}', this)">Refresh graphic design</button><span class="small">Rebuilds this saved graphic using the latest design without using AI credits.</span>{% endif %}
+{% if d.image_status == 'fallback_graphic' %}<button type="button" onclick="refreshGraphic('{{ d.item_id }}', this)">Refresh graphic design</button><span class="small">Rebuilds this saved graphic using the latest design without using AI credits.</span>{% elif d.image_status == 'ai_illustration' %}<button type="button" onclick="refreshStoryImage('{{ d.item_id }}', this)">Regenerate story image</button><span class="small">Creates a new image using the corrected story-specific visual direction.</span>{% endif %}
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
 <div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
@@ -148,6 +148,15 @@ async function refreshGraphic(itemId,button){
   if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
   location.reload();
  }catch(error){button.disabled=false;button.textContent='Refresh graphic design';alert('Could not refresh graphic: '+error.message);}
+}
+async function refreshStoryImage(itemId,button){
+ button.disabled=true;button.textContent='Generating story-matched image...';
+ try{
+  const response=await fetch('/refresh-story-image/'+itemId,{method:'POST',headers:{'Accept':'application/json'}});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
+  location.reload();
+ }catch(error){button.disabled=false;button.textContent='Regenerate story image';alert('Could not regenerate image: '+error.message);}
 }
 async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
 b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News and images are being processed in the background.';
@@ -233,6 +242,28 @@ def refresh_fallback(item_id):
     except Exception as exc:
         app.logger.exception("Could not refresh fallback graphic for %s", item_id)
         return jsonify(error=f"Graphic refresh failed: {type(exc).__name__}: {str(exc)[:180]}"), 500
+
+
+@app.post("/refresh-story-image/<item_id>")
+@login_required
+def refresh_story_image(item_id):
+    """Regenerate a saved AI illustration using the latest story-specific direction."""
+    draft = next((item for item in get_drafts(limit=100) if item["item_id"] == item_id), None)
+    if not draft:
+        return jsonify(error="Draft not found."), 404
+    if draft.get("image_status") != "ai_illustration":
+        return jsonify(error="Only AI illustration drafts can be regenerated here."), 409
+    try:
+        article_text = fetch_article_text(draft.get("url") or "", draft.get("summary") or "")
+        image = generate_news_image(
+            draft["title"], article_text, draft.get("summary") or ""
+        )
+        if not replace_draft_image(item_id, image, "ai_illustration"):
+            return jsonify(error="Could not save the regenerated image."), 500
+        return jsonify(success=True, message="Story image regenerated.")
+    except Exception as exc:
+        app.logger.exception("Could not regenerate story image for %s", item_id)
+        return jsonify(error=f"Image regeneration failed: {type(exc).__name__}: {str(exc)[:180]}"), 500
 
 
 @app.get("/draft-image/<item_id>")
