@@ -66,19 +66,24 @@ The background worker can be started separately with `python worker.py` when a s
 
 ## AI Image Studio (development branch)
 
-The separate Image Studio uses:
-- Image pixels: Cloudflare Workers AI with Black Forest Labs FLUX.2 Klein 9B (model ID @cf/black-forest-labs/flux-2-klein-9b).
+The separate Image Studio uses a free-first provider router:
+- Primary image provider: Cloudflare Workers AI with Black Forest Labs FLUX.2 Klein 9B (model ID @cf/black-forest-labs/flux-2-klein-9b), when configured and available.
+- Free text-to-image fallback: AI Horde community workers, using its public asynchronous REST API. Anonymous requests use the public anonymous key and have the lowest queue priority; the community may be busy and generation is not guaranteed to finish quickly.
+- Privacy guard: reference-image requests are never forwarded to AI Horde. Editing and variations that include uploaded/source images require Cloudflare. AI Horde is a public volunteer network; anonymous prompts and generated results may be shared with its workers/community. Do not send sensitive or private prompts.
 - Prompt understanding: Groq, used only to improve text prompts; Groq is not the image generator.
 - Persistent history: PostgreSQL stores conversations, messages, image versions and reference uploads. Render's local filesystem is not used for image history.
-- Editing: reference-image-based editing and variations. The source image is preserved as a separate version.
+- Editing: reference-image-based editing and variations use Cloudflare only. The source image is preserved as a separate version.
 
-The model supports up to four reference images. The adapter prepares reference inputs for the model's documented size limit. The initial implementation supports one generated image per request and one active generation job at a time.
+Cloudflare supports up to four reference images in this adapter. AI Horde fallback is text-to-image only and uses one image per request. The initial implementation supports one active generation job at a time.
 
 ### Image Studio environment variables
 
 - CLOUDFLARE_ACCOUNT_ID: Cloudflare account ID.
 - CLOUDFLARE_API_TOKEN: server-side token with Workers AI permission.
 - IMAGE_MODEL: optional; defaults to @cf/black-forest-labs/flux-2-klein-9b.
+- AI_HORDE_ENABLED: optional; defaults to true. Set false to disable AI Horde fallback.
+- AI_HORDE_API_KEY: optional registered AI Horde key; if absent, the public anonymous key is used. A registered key may improve queue priority.
+- AI_HORDE_MAX_WAIT_SECONDS: optional queue wait limit; defaults to 180 seconds and is capped at 240.
 - GROQ_API_KEY: required for prompt enhancement and existing news writing.
 - GROQ_MODEL: text model used by Groq.
 
@@ -86,7 +91,7 @@ Keep all credentials in Render environment variables. Never commit real keys to 
 
 ### Cost and privacy limits
 
-Cloudflare documents a free Workers AI allocation of 10,000 neurons per day. The allocation is shared across Workers AI usage on the account and is not unlimited. Do not upgrade the Cloudflare account to a paid Workers plan for this project unless the account owner explicitly chooses to do so. This app does not switch to a paid provider or use a paid fallback.
+Cloudflare documents a free Workers AI allocation of 10,000 neurons per day. It is not unlimited. AI Horde is a community-funded volunteer service and may be used for free, but anonymous requests have low priority and may be delayed or restricted under high load. Neither provider promises unlimited, uninterrupted generation. No paid provider or paid fallback is configured.
 
 The Image Studio uses PostgreSQL BYTEA storage for the current version. This is durable only while the configured PostgreSQL service and its retention plan remain active. A separate private object-storage service has not yet been configured.
 
