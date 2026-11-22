@@ -101,6 +101,20 @@ def _visual_direction(title, description, summary, visual_brief=""):
     headline = re.sub(r"[\u2010-\u2015\u2212]", "-", headline)
     details = re.sub(r"[\u2010-\u2015\u2212]", "-", details)
 
+    # Loksewa / public-service exam preparation is not a generic school story.
+    if any(term in headline for term in ("loksewa", "public service commission", "psc exam", "लोकसेवा", "नायब सुब्बा", "शाखा अधिकृत", "तयारी कक्षा")):
+        return (
+            "PUBLIC SERVICE EXAM PREPARATION STORY: create one realistic, documentary-style "
+            "editorial scene of a small group of young Nepali adult learners preparing for "
+            "public service examinations. Show focused students at a study table with open "
+            "reference books, handwritten revision notes with no legible text, pens and a laptop "
+            "suggesting an online preparation class. Natural Nepali study-centre atmosphere, "
+            "authentic everyday clothing, warm daylight, clear foreground and rich but natural "
+            "colours. Do not show a school building, graduation caps, fake government logos, "
+            "readable text, certificates, official documents, identifiable real people or "
+            "invented claims about the programme."
+        )
+
     # Detect the kind of event, not only the sport/category. This prevents
     # transfer, signing, return and appointment stories from becoming fake match scenes.
     if any(term in headline for term in ("cricket", "imam-ul-haq", "imam ul haq", "pakistan opener", "pakistani opener", "yorkshire", "county cricket")):
@@ -578,15 +592,13 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     visual_plan = researched_plan or visual_brief or _visual_direction(title, description, summary)
     matched, review_note = _check_visual_match(raw, title, description, visual_plan)
     if not matched and str(review_note).startswith("QA_UNAVAILABLE:"):
-        # Never pass an unverified AI image through as approved. When the
-        # vision reviewer is rate-limited, return a locally rendered,
-        # clearly labelled editorial graphic instead of failing the Studio.
-        import logging
-        logging.getLogger("nayadrishti.images").warning(
-            "AI image could not be verified; using labelled local editorial graphic: %s",
-            str(review_note)[:180],
+        # Do not disguise a generic local graphic as a completed AI news image.
+        # If visual verification is unavailable, fail safely and let the user retry.
+        raise RuntimeError(
+            "AI image was generated but could not be quality-checked because the free "
+            "vision reviewer is temporarily rate-limited. No unverified image was approved. "
+            "Please retry later."
         )
-        return create_fallback_news_graphic(title, summary)
     if not matched:
         if _qa_retry < 1:
             correction = (
