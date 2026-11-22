@@ -31,6 +31,16 @@ _check_status = {"running": False, "finished": False, "result": None, "error": N
 def _execute_feed_check():
     global _check_status
     if not _feed_execution_lock.acquire(blocking=False):
+        # Never leave the dashboard spinner stuck if a scheduled check won
+        # the race against a manual check.
+        with _check_lock:
+            _check_status = {
+                "running": False, "finished": True, "result": None,
+                "error": "Another feed check is already running. Refresh the dashboard and wait for that check to finish.",
+                "started_at": _check_status.get("started_at"),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "trigger": _check_status.get("trigger", "manual"),
+            }
         return
     try:
         result = check_feeds()
@@ -320,8 +330,20 @@ def run_check():
             return jsonify(_check_status)
 
     with _check_lock:
-        if _check_status["running"]:
+        if _feed_execution_lock.locked():
+            # A scheduled or previous check owns the worker. Do not replace its
+            # status with a new manual run that cannot acquire the execution lock.
             return jsonify(_check_status), 202
+        if _check_status["running"]:
+            started = _check_status.get("started_at")
+            try:
+                started_at = datetime.fromisoformat(started) if started else None
+                age = (datetime.now(timezone.utc) - started_at).total_seconds() if started_at else 0
+            except (TypeError, ValueError):
+                age = 0
+            if age < 900:
+                return jsonify(_check_status), 202
+            app.logger.warning("Recovering stale feed-check status after %.0f seconds.", age)
         _check_status = {"running": True, "finished": False, "result": None, "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "trigger": "manual"}
 
     thread = threading.Thread(target=_run_feed_check_in_background, daemon=True)
