@@ -36,7 +36,7 @@ class _ImageMetaParser(HTMLParser):
 
 
 def configured_feeds():
-    """Use the three requested priority sources; Google News is discovery only."""
+    """Monitor the three requested publishers using their own public feeds."""
     raw = os.getenv("NEWS_FEEDS", "")
     feeds = []
     allowed = ("neb", "routine of nepal banda", "ronb", "troll cricket")
@@ -45,27 +45,25 @@ def configured_feeds():
             continue
         name, url = part.split("=", 1)
         name, url = name.strip(), url.strip()
+        # Ignore old Google News discovery URLs: those are not publisher feeds.
+        if "news.google.com/rss" in url.lower():
+            continue
         if (
             name and url.startswith(("https://", "http://"))
             and any(term in name.lower() for term in allowed)
         ):
             feeds.append((name, url))
 
-    # Always include the official NEB feed; avoid adding it twice.
-    neb_url = "https://nebnews.net/feed/"
-    if not any(url.rstrip("/") == neb_url.rstrip("/") for _, url in feeds):
-        feeds.append(("NEB News and Result", neb_url))
-
-    # Google News RSS is used only to discover recent posts from the two
-    # requested social/news sources. It is not treated as the original publisher.
-    google_queries = [
-        ("Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d', "en", "NP", "NP:en"),
-        ("Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d', "en", "NP", "NP:en"),
+    defaults = [
+        ("NEB News and Result", "https://nebnews.net/feed/"),
+        ("Routine of Nepal Banda", "https://www.ronbpost.com/feed/"),
+        # Official public uploads feed for Troll Cricket Nepal's YouTube channel.
+        ("Troll Cricket Nepal", "https://www.youtube.com/feeds/videos.xml?channel_id=UCYsCbmGla13fTwct5e9HTNQ"),
     ]
-    for source_name, query, language, country, edition in google_queries:
-        params = urlencode({"q": query, "hl": language, "gl": country, "ceid": edition})
-        feeds.append((source_name, "https://news.google.com/rss/search?" + params))
-    # De-duplicate configured URLs while preserving order.
+    for name, url in defaults:
+        if not any(existing_name.lower() == name.lower() for existing_name, _ in feeds):
+            feeds.append((name, url))
+
     unique = []
     seen_urls = set()
     for name, url in feeds:
@@ -73,7 +71,6 @@ def configured_feeds():
             unique.append((name, url))
             seen_urls.add(url)
     return unique
-
 
 def clean_text(value, max_length=5000):
     value = re.sub(r"<[^>]+>", " ", value or "")
@@ -390,9 +387,19 @@ def check_feeds():
                 if not title or not link:
                     continue
 
-                # Still-image news only: never process direct video links or enclosures.
+                # Accept only the official Troll Cricket Nepal channel's public
+                # video feed, and only when its description contains enough context
+                # to write a fact-based draft. Other direct video links are skipped.
                 video_hosts = ("youtube.com", "youtu.be", "vimeo.com", "dailymotion.com")
                 link_host = (urlparse(link).hostname or "").lower()
+                is_video_link = any(
+                    link_host == host or link_host.endswith("." + host)
+                    for host in video_hosts
+                )
+                is_official_troll_feed = (
+                    source_name.lower() == "troll cricket nepal"
+                    and "youtube.com/feeds/videos.xml?channel_id=ucyscbmgl a13ftwct5e9htnq".replace(" ", "") in feed_url.lower()
+                )
                 video_enclosure = any(
                     isinstance(enc, dict)
                     and (
@@ -403,12 +410,13 @@ def check_feeds():
                     )
                     for enc in (item.get("enclosures") or [])
                 )
-                if (
-                    any(link_host == host or link_host.endswith("." + host) for host in video_hosts)
-                    or video_enclosure
-                ):
+                if (is_video_link and not is_official_troll_feed) or video_enclosure:
                     feed_info.setdefault("videos_skipped", 0)
                     feed_info["videos_skipped"] += 1
+                    continue
+                if is_official_troll_feed and len(description) < 120:
+                    feed_info.setdefault("insufficient_video_context_skipped", 0)
+                    feed_info["insufficient_video_context_skipped"] += 1
                     continue
 
                 fresh, freshness_reason = _is_fresh_entry(item, max_age_hours=24)
