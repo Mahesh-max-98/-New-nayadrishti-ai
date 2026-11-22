@@ -278,8 +278,10 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     headline = clean(title, 220)
     facts = clean(description, 260)
     post = clean(summary, 120)
-    brief = clean(visual_brief, 180)
-    direction = clean(_visual_direction(headline, facts, post, brief), 120)
+    # Preserve the research-derived scene plan; older 180-char trimming
+    # discarded the very details needed to keep the image on-topic.
+    brief = clean(visual_brief, 460)
+    direction = clean(_visual_direction(headline, facts, post, brief), 150)
     # Keep the total comfortably below both character- and token-based limits.
     prompt = (
         "Create ONE continuous realistic editorial scene for this exact news story, like a single photograph. "
