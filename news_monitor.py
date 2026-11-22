@@ -67,6 +67,7 @@ def configured_feeds():
         ("Google News - myRepublica", 'site:myrepublica.nagariknetwork.com Nepal when:1d', "en", "NP", "NP:en"),
         ("Google News - The Himalayan Times", 'site:thehimalayantimes.com Nepal when:1d', "en", "NP", "NP:en"),
         ("Google News - Annapurna Post", 'site:annapurnapost.com Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Laliguras Media Network", 'site:laligurash.com when:1d -site:youtube.com -site:youtu.be', "ne", "NP", "NP:ne"),
         ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:1d", "en", "NP", "NP:en"),
         ("Google News - World", "world breaking news when:1d", "en", "US", "US:en"),
         ("Google News - Football", "football soccer latest when:1d", "en", "GB", "GB:en"),
@@ -129,11 +130,15 @@ def _allowed_host(url, allowed_domains):
 def _publisher_image_domains():
     # Deliberately opt-in: a photo being visible in an RSS feed does NOT by itself
     # grant permission to republish it. Add only domains whose reuse terms allow it.
-    return {
+    domains = {
         value.strip().lower().lstrip(".").rstrip(".")
         for value in os.getenv("PUBLISHER_IMAGE_ALLOWED_DOMAINS", "").split(",")
         if value.strip()
     }
+    # The user has confirmed permission from Laligurash Media Network to reuse
+    # its still news photographs on the NayaDrishti Facebook Page.
+    domains.add("laligurash.com")
+    return domains
 
 
 def _candidate_feed_images(item, article_url):
@@ -187,17 +192,35 @@ def _article_meta_image(article_url):
 
 def fetch_permitted_publisher_photo(item, article_url):
     allowed = _publisher_image_domains()
-    if not allowed or not _allowed_host(article_url, allowed):
+    if not allowed:
         return None
 
-    candidates = _candidate_feed_images(item, article_url)
+    # Google News RSS URLs redirect to the original publisher article.
+    try:
+        article_response = requests.get(
+            article_url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; NayaDrishtiAI/1.0)"},
+            timeout=(8, 15),
+            allow_redirects=True,
+            stream=True,
+        )
+        final_article_url = article_response.url or article_url
+        article_response.close()
+    except Exception as exc:
+        log.info("Could not resolve publisher article URL %s: %s", article_url, exc)
+        final_article_url = article_url
+
+    if not _allowed_host(final_article_url, allowed):
+        return None
+
+    candidates = _candidate_feed_images(item, final_article_url)
     if not candidates:
         try:
-            meta_image = _article_meta_image(article_url)
+            meta_image = _article_meta_image(final_article_url)
             if meta_image:
                 candidates.append(meta_image)
         except Exception:
-            log.info("Could not read article image metadata for %s", article_url)
+            log.info("Could not read article image metadata for %s", final_article_url)
 
     for image_url in candidates:
         if not image_url.startswith("https://") or not _allowed_host(image_url, allowed):
@@ -304,7 +327,7 @@ def check_feeds():
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0, "fallback_graphics_used": 0,
-        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 18,
+        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 19,
         "visual_references_checked": 0, "feed_details": [],
     }
     if not feeds:
@@ -338,6 +361,27 @@ def check_feeds():
                 link = (item.get("link") or "").strip()
                 description = clean_text(item.get("summary") or item.get("description") or "")
                 if not title or not link:
+                    continue
+
+                # Still-image news only: never process direct video links or enclosures.
+                video_hosts = ("youtube.com", "youtu.be", "vimeo.com", "dailymotion.com")
+                link_host = (urlparse(link).hostname or "").lower()
+                video_enclosure = any(
+                    isinstance(enc, dict)
+                    and (
+                        (enc.get("type") or "").lower().startswith("video/")
+                        or urlparse(enc.get("href") or enc.get("url") or "").path.lower().endswith(
+                            (".mp4", ".mov", ".m4v", ".webm", ".avi")
+                        )
+                    )
+                    for enc in (item.get("enclosures") or [])
+                )
+                if (
+                    any(link_host == host or link_host.endswith("." + host) for host in video_hosts)
+                    or video_enclosure
+                ):
+                    feed_info.setdefault("videos_skipped", 0)
+                    feed_info["videos_skipped"] += 1
                     continue
 
                 fresh, freshness_reason = _is_fresh_entry(item, max_age_hours=24)
