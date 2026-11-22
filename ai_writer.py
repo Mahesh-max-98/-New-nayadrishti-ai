@@ -108,7 +108,15 @@ Article URL: {article_url}
             "Check the configured GROQ_MODEL and Groq response."
         )
 
-    return result
+    # Enforce the agreed short-post format before any image is generated
+    # or a post can reach the Facebook publisher.
+    lines = [line.strip() for line in result.splitlines() if line.strip()]
+    if not 3 <= len(lines) <= 6:
+        raise RuntimeError(
+            f"Generated news post has {len(lines)} lines; expected 3 to 6. "
+            "The item is skipped rather than publishing an incorrectly formatted post."
+        )
+    return "\\n".join(lines)
 
 def write_visual_brief(title, description, source_name):
     """Extract a compact, fact-grounded visual brief for the story image."""
