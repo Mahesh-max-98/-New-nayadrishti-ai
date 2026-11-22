@@ -186,7 +186,7 @@ def check_feeds():
     result = {
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
-        "publisher_photos_used": 0, "ai_illustrations_used": 0,
+        "publisher_photos_used": 0, "ai_illustrations_used": 0, "fallback_graphics_used": 0,
         "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 3,
         "visual_references_checked": 0, "feed_details": [],
     }
