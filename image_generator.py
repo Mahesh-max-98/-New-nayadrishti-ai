@@ -398,7 +398,10 @@ def _check_visual_match(raw_image, title, description, visual_plan):
     if not enabled:
         return True, "visual QA explicitly disabled"
     if not api_key:
-        return False, "QA_UNAVAILABLE: GROQ_API_KEY is missing; image cannot be verified"
+        try:
+            return _check_with_horde_caption(raw_image, visual_plan)
+        except Exception as backup_exc:
+            return False, "QA_UNAVAILABLE: Groq key missing and free AI Horde caption review unavailable"
     try:
         with Image.open(io.BytesIO(raw_image)) as source_image:
             normalized = io.BytesIO()
