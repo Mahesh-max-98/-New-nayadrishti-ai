@@ -379,9 +379,10 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
         payload = {
             "prompt": prompt,
             "params": {
-                "width": 768,
+                # Stay below AI Horde's anonymous free-work threshold.
+                "width": 576,
                 "height": 512,
-                "steps": 20,
+                "steps": 12,
                 "n": 1,
                 "cfg_scale": 7.0,
                 "karras": True,
