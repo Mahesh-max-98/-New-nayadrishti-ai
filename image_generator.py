@@ -301,29 +301,73 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
 
     prompt = _build_image_prompt(title, description, summary, visual_brief)
     url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"},
-        json={"prompt": prompt, "steps": 4},
-        timeout=120,
-    )
-    if not response.ok:
-        raise RuntimeError(
-            f"Cloudflare image API error {response.status_code}: "
-            f"{response.text[:350].replace(chr(10), ' ')}"
-        )
-    data = response.json()
-    result = data.get("result", {})
-    encoded = result.get("image") if isinstance(result, dict) else result
-    if not encoded and isinstance(data.get("image"), str):
-        encoded = data["image"]
-    if not encoded:
-        raise RuntimeError("Cloudflare returned no image data.")
+    last_error = None
+    raw = None
+    for attempt in range(2):
+        try:
+            response = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, image/jpeg, image/png",
+                },
+                json={"prompt": prompt, "steps": 4},
+                timeout=(20, 150),
+            )
+            if not response.ok:
+                detail = response.text[:500].replace(chr(10), " ")
+                raise RuntimeError(
+                    f"Cloudflare image API error {response.status_code}: {detail}"
+                )
+
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            if content_type.startswith("image/"):
+                raw = response.content
+            else:
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "Cloudflare returned neither image bytes nor valid JSON "
+                        f"(Content-Type: {content_type or 'unknown'})."
+                    ) from exc
+                if data.get("success") is False:
+                    errors = data.get("errors") or []
+                    message = "; ".join(
+                        str(item.get("message", item)) for item in errors[:3]
+                    )
+                    raise RuntimeError("Cloudflare rejected image generation: " + (message or "unknown API error"))
+                result = data.get("result") or {}
+                encoded = result.get("image") if isinstance(result, dict) else None
+                if not encoded and isinstance(data.get("image"), str):
+                    encoded = data["image"]
+                if not encoded:
+                    raise RuntimeError(
+                        "Cloudflare response had no base64 image. "
+                        "Check Workers AI token permissions, account ID and usage limits."
+                    )
+                raw = base64.b64decode(encoded, validate=True)
+
+            if not raw:
+                raise RuntimeError("Cloudflare returned an empty image.")
+            with Image.open(io.BytesIO(raw)) as check:
+                check.verify()
+            break
+        except Exception as exc:
+            last_error = exc
+            raw = None
+            if attempt == 0:
+                time.sleep(2)
+    if raw is None:
+        raise RuntimeError(f"Image generation failed after retry: {last_error}") from last_error
+
     try:
-        raw = base64.b64decode(encoded)
-        image = Image.open(io.BytesIO(raw))
+        image = Image.open(io.BytesIO(raw)).convert("RGB")
+        if image.width < 256 or image.height < 256:
+            raise ValueError(f"Generated image is unexpectedly small: {image.size}")
         lines = [line.strip() for line in (summary or "").splitlines() if line.strip()]
         headline = lines[2] if len(lines) >= 3 else title
         return _compose_news_card(image, headline, summary, ai_generated=True)
     except Exception as exc:
-        raise RuntimeError("Could not decode or brand the generated image.") from exc
+        raise RuntimeError(f"Generated image could not be decoded or branded: {type(exc).__name__}: {exc}") from exc
