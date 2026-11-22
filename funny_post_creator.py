@@ -142,7 +142,7 @@ def create_funny_post(topic="", kind="mixed"):
         "Absolutely no text, typography, letters, captions, logos, watermark, poster layout or cartoon style."
     )
     try:
-        photo = generate_image(image_prompt, width=1024, height=1024)
+        photo = generate_image(image_prompt, width=576, height=576)
         return quote, _render_quote_photo(photo, quote), None
     except ImageProviderError as exc:
         # Never lose the generated joke when an image provider is temporarily unavailable.
