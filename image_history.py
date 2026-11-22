@@ -296,10 +296,16 @@ def save_upload(user_id, filename, mime_type, image_bytes):
             if image.format not in ("JPEG", "PNG", "WEBP"):
                 raise ValueError("Only JPG, PNG and WebP uploads are supported.")
             width, height = image.size
+            actual_format = (image.format or "").upper()
+            if width * height > 40000000:
+                raise ValueError("Uploaded image dimensions are too large (maximum 40 megapixels).")
     except ValueError:
         raise
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError("The uploaded file is not a valid image.") from exc
+    canonical_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(actual_format)
+    if not canonical_mime:
+        raise ValueError("Only JPG, PNG and WebP uploads are supported.")
     upload_id = uuid.uuid4().hex
     with connection() as db:
         db.execute(
@@ -307,10 +313,10 @@ def save_upload(user_id, filename, mime_type, image_bytes):
                (upload_id, user_id, filename, mime_type, width, height, image_data)
                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
             (upload_id, str(user_id), str(filename or "reference-image")[:180],
-             str(mime_type or "application/octet-stream")[:80], width, height, bytes(image_bytes)),
+             canonical_mime, width, height, bytes(image_bytes)),
         )
     return {"upload_id": upload_id, "filename": str(filename or "reference-image")[:180],
-            "mime_type": mime_type, "width": width, "height": height}
+            "mime_type": canonical_mime, "width": width, "height": height}
 
 
 def get_upload(upload_id, user_id):
