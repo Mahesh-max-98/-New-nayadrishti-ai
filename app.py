@@ -109,7 +109,7 @@ h1{margin:0 0 6px;font-size:27px}header p{margin:4px 0;color:#dbeafe}
 button{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;font-size:15px}
 input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0 14px;font-size:16px}
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
-.draft h3{margin:0 0 8px}.draft p{white-space:pre-wrap;line-height:1.55}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.draft h3{margin:0 0 8px}.draft .post-headline{white-space:pre-line;line-height:1.65;font-size:21px}.draft p{white-space:pre-wrap;line-height:1.55}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:100%;max-height:420px;object-fit:contain;background:#0f172a;border-radius:10px;margin:10px 0}
 </style></head><body><main class="wrap">
 <header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
@@ -131,12 +131,12 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Do not enable until you have reviewed generated text and images.</p></section>
 <section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
-{% for d in drafts %}<article class="draft"><h3>{{ d.title }}</h3>
-<div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
+{% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
+<div class="small">Source: {{ d.source|replace('Google News - ', '')|replace('Google News – ', '') or 'Original publisher' }} · {{ d.created_at }}</div>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
 {% if d.image_status == 'fallback_graphic' %}<button type="button" onclick="refreshGraphic('{{ d.item_id }}', this)">Refresh graphic design</button><span class="small">Rebuilds this saved graphic using the latest design without using AI credits.</span>{% endif %}
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
-<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div><p>{{ d.summary }}</p>
+<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
 {% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
 </section>{% endif %}</main>
