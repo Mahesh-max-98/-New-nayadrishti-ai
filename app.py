@@ -16,6 +16,7 @@ from google_research import research_story
 from image_provider import generate_image as generate_studio_image, ImageProviderError, get_last_provider
 from image_editor import edit_image as edit_studio_image, create_variation
 from prompt_enhancer import enhance_prompt, PromptEnhancementError
+from funny_routes import funny_bp
 from image_history import (
     init_image_history_db, create_conversation, add_message, save_image_version,
     get_image, list_images, list_conversations, get_conversation, delete_image,
@@ -23,6 +24,7 @@ from image_history import (
 )
 
 app = Flask(__name__)
+app.register_blueprint(funny_bp)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
 if not app.secret_key:
     raise RuntimeError("FLASK_SECRET_KEY is required. Set a long, random secret in Render environment variables.")
@@ -151,7 +153,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <p class="small">Hybrid image mode: permitted publisher photo first, free AI-generated editorial illustration second, and a clearly labelled NayaDrishti graphic if image generation is unavailable. AI images are illustrations, not documentary photographs. Facebook auto-publishing remains off for testing.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
-<section class="panel"><h2>Creative tools</h2><p>Generate a separate, story-matched editorial illustration.</p><p><a href="/image-studio">Open NayaDrishti AI Image Studio →</a></p></section>
+<section class="panel"><h2>Creative tools</h2><p><a href="/funny-studio">Open Roman Nepali Funny Post Creator →</a></p><p>Create jokes and quote-on-photo posts.</p><p><a href="/image-studio">Open NayaDrishti AI Image Studio →</a></p></section>
 <section class="panel"><h2>Publishing status</h2>
 <p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Do not enable until you have reviewed generated text and images.</p></section>
