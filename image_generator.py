@@ -312,39 +312,77 @@ HEADLINE:
         return ""
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
-    """Build a compact, story-locked prompt; put the subject first so providers cannot truncate it."""
-    headline = re.sub(r"\\s+", " ", (title or "").strip())[:240]
-    facts = re.sub(r"\\s+", " ", (description or "").strip())[:900]
-    post = re.sub(r"\\s+", " ", (summary or "").strip())[:240]
-    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:1200]
+    """Build the prompt with the researched event and exact background first."""
+    headline = re.sub(r"\\s+", " ", (title or "").strip())[:300]
+    facts = re.sub(r"\\s+", " ", (description or "").strip())[:1150]
+    post = re.sub(r"\\s+", " ", (summary or "").strip())[:300]
+    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:1250]
     direction = _visual_direction(headline, facts, post, brief)
-
-    # Put the exact scene and exclusions at the beginning. The previous long
-    # prompt placed these near the end, where the 2,048-character cap could cut
-    # off the most important story-specific instructions.
     prompt = (
-        "NEWS SCENE — FOLLOW THIS EXACTLY: " + direction[:650] + " "
-        "STORY HEADLINE: " + headline + " "
-        "ARTICLE FACTS: " + facts[:650] + " "
-        "NEWS SUMMARY: " + post + " "
-        "Create one premium, photorealistic editorial news illustration for a "
-        "Nepali newsroom. The scene must depict the event described above, not "
-        "a generic image from a broad category. If the requested scene is unclear, "
-        "use a simple symbolic scene tied directly to the headline rather than "
-        "inventing people, activities or locations. "
-        "For a diplomatic visit, show only the specific airport/official-arrival "
-        "setting and the two relevant national flags; do not add students, sports, "
-        "writing desks, classrooms or unrelated people. Never invent or imitate "
-        "a real person's face. One coherent scene, realistic documentary-photo "
-        "aesthetic, natural light, accurate proportions, restrained colour, crisp "
-        "main subject, uncluttered background. "
-        "No text, letters, numbers, signs, logos, watermark, collage, split-screen, "
-        "fantasy, CGI, plastic skin, unrelated objects or extra activities. "
-        "This is an AI editorial illustration, not documentary evidence. "
-        "Visual research notes, if any, are secondary and must not override the "
-        "headline or article facts: " + brief
+        "TOP PRIORITY — FACT-LOCKED ARTICLE VISUAL PLAN: " + brief + " "
+        "HEADLINE: " + headline + " "
+        "ARTICLE FACTS: " + facts + " "
+        "POST: " + post + " "
+        "CATEGORY SAFETY CHECK (secondary only): " + direction[:350] + " "
+        "Create one photorealistic editorial illustration for a Nepali newsroom. "
+        "The main subject AND the complete background must match the exact event and setting in the article plan. "
+        "Do not use a generic category scene. Choose correct country, city, venue, equipment, clothing context and event type only when supported by the article. "
+        "Keep one clear focal subject, realistic depth, coherent foreground/middle-ground/background, natural documentary-style light and accurate proportions. "
+        "Do not fabricate a recognisable face of a real person; use a non-identifiable rear view, silhouette or symbolic composition unless an authentic permitted photo is supplied separately. "
+        "Do not add unrelated people, props, sport equipment, buildings, flags, logos, signs, text, numbers, watermarks, collage panels or activities. "
+        "If exact scene details are uncertain, use a restrained symbolic image rather than inventing a realistic location or event. "
+        "This is an AI editorial illustration, not documentary evidence."
     )
-    return prompt[:2048]
+    return prompt[:3000]
+
+
+def _check_visual_match(raw_image, title, description, visual_plan):
+    """Reject generated images whose subject or background visibly contradicts the article."""
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    enabled = os.getenv("IMAGE_VISUAL_QA_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+    if not api_key or not enabled:
+        return True, "visual QA not enabled"
+    try:
+        encoded = base64.b64encode(raw_image).decode("ascii")
+        model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
+        prompt = (
+            "Strictly compare the image with the news article and approved visual plan. "
+            "Check: (1) correct main subject/event, (2) correct setting/background, "
+            "(3) no unrelated objects, wrong sport, wrong country or invented activity, "
+            "(4) no fabricated identifiable real-person likeness. "
+            "HEADLINE: " + str(title or "")[:300] + " "
+            "ARTICLE: " + str(description or "")[:1800] + " "
+            "VISUAL PLAN: " + str(visual_plan or "")[:1200] + " "
+            "Return exactly VERDICT: PASS or VERDICT: RETRY, then PROBLEM: one short reason. "
+            "Choose RETRY if either subject or background is clearly wrong or uncertain."
+        )
+        response = requests.post(
+            GROQ_URL,
+            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+            json={"model": model, "messages": [
+                {"role": "system", "content": "You are a strict editorial image reviewer. Judge only visible details."},
+                {"role": "user", "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}},
+                ]},
+            ], "temperature": 0, "max_completion_tokens": 100}, timeout=(10, 40),
+        )
+        if not response.ok:
+            raise RuntimeError("Vision QA HTTP " + str(response.status_code))
+        choices = response.json().get("choices") or []
+        answer = (choices[0].get("message") or {}).get("content") if choices else ""
+        if isinstance(answer, list):
+            answer = " ".join(part.get("text", "") for part in answer if isinstance(part, dict))
+        answer = str(answer or "").strip()
+        if re.search(r"VERDICT\\s*:\\s*PASS\\b", answer, re.I):
+            return True, answer[:260]
+        if re.search(r"VERDICT\\s*:\\s*RETRY\\b", answer, re.I):
+            return False, answer[:260]
+        raise RuntimeError("Vision QA returned unclear result: " + answer[:140])
+    except Exception as exc:
+        import logging
+        logging.getLogger("nayadrishti.images").warning("Visual QA unavailable; article-based prompt retained: %s", exc)
+        return True, "visual QA unavailable"
 
 def generate_news_image(title, description="", summary="", visual_brief="", _qa_retry=0):
     """Research the article, then generate a specific editorial illustration."""
@@ -496,6 +534,22 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
                 raise RuntimeError(
                     f"Image generation unavailable; using the branded editorial graphic. {last_error}"
                 ) from last_error
+
+    # Run a visual review before branding. A mismatch triggers one automatic
+    # regeneration with the reviewer's concrete correction; no button is needed.
+    visual_plan = researched_plan or visual_brief or _visual_direction(title, description, summary)
+    matched, review_note = _check_visual_match(raw, title, description, visual_plan)
+    if not matched:
+        if _qa_retry < 1:
+            correction = (
+                visual_brief + " IMAGE REVIEW CORRECTION: " + review_note
+                + ". Regenerate the exact article scene with the correct background; "
+                "remove every unrelated person, prop, activity and location."
+            )
+            return generate_news_image(
+                title, description, summary, correction, _qa_retry=_qa_retry + 1
+            )
+        raise RuntimeError("Image still mismatched after automatic regeneration: " + review_note)
 
     try:
         image = Image.open(io.BytesIO(raw)).convert("RGB")
