@@ -95,9 +95,11 @@ def _google_image_candidates(title):
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     engine_id = os.getenv("GOOGLE_CSE_ID", "").strip()
     if not api_key or not engine_id:
-        # Google Custom Search JSON API is not open to new customers.
-        # Use Commons as a no-key, licence-labelled visual-reference fallback.
-        return _commons_image_candidates(title)
+        # Do not query Wikimedia Commons for every story when Google CSE is
+        # unavailable. The endpoint rate-limits bursts (HTTP 429), and image
+        # references are optional: the story-specific prompt can be built from
+        # the headline, publisher description, and Google News context instead.
+        return []
 
     # Search results are used only as visual-reference candidates. The app
     # does not republish these images. A rights filter narrows the search,
