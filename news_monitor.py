@@ -10,7 +10,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, remember, save_draft, set_draft_status
+from database import already_seen, already_seen_title, get_draft_for_image_retry, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
 from image_generator import create_publisher_news_card, generate_news_image
 from google_research import research_story
@@ -220,6 +220,31 @@ def check_feeds():
                 if already_seen(item_id) or already_seen_title(title):
                     result["already_seen"] += 1
                     feed_info["already_seen"] += 1
+                    retry_draft = get_draft_for_image_retry(item_id)
+                    if retry_draft:
+                        try:
+                            retry_image = generate_news_image(
+                                title, description, retry_draft["summary"]
+                            )
+                            save_draft(
+                                item_id, title, source_name, link,
+                                retry_draft["summary"], image_data=retry_image,
+                                image_status="ai_illustration", image_error=None,
+                            )
+                            result.setdefault("images_retried", 0)
+                            result["images_retried"] += 1
+                            log.info("Recovered missing image for previously saved story: %s", title)
+                        except Exception as retry_exc:
+                            save_draft(
+                                item_id, title, source_name, link,
+                                retry_draft["summary"], image_data=None,
+                                image_status="failed",
+                                image_error=f"{type(retry_exc).__name__}: {str(retry_exc)[:350]}",
+                            )
+                            result.setdefault("image_retry_errors", [])
+                            result["image_retry_errors"].append(
+                                f"{source_name}: {type(retry_exc).__name__}: {str(retry_exc)[:180]}"
+                            )
                     continue
 
                 summary = write_summary(title=title, description=description,
@@ -245,6 +270,7 @@ def check_feeds():
 
                 image_data = None
                 image_status = "failed"
+                image_error = None
                 try:
                     publisher_photo = fetch_permitted_publisher_photo(item, link)
                     if publisher_photo:
@@ -272,6 +298,7 @@ def check_feeds():
                         result["ai_illustrations_used"] += 1
                 except Exception as image_exc:
                     log.exception("Image creation failed for %s", source_name)
+                    image_error = f"{type(image_exc).__name__}: {str(image_exc)[:350]}"
                     result["errors"].append(
                         f"{source_name} image: {type(image_exc).__name__}: {str(image_exc)[:180]}"
                     )
@@ -279,7 +306,8 @@ def check_feeds():
                 # A draft is saved even when image creation fails; image-less drafts
                 # are never auto-published.
                 save_draft(item_id, title, source_name, link, summary,
-                           image_data=image_data, image_status=image_status)
+                           image_data=image_data, image_status=image_status,
+                           image_error=image_error)
                 result["drafts_saved"] += 1
 
                 # Publishing is a separate step from drafting. A Facebook API
