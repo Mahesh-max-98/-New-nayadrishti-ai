@@ -49,7 +49,7 @@ form.addEventListener('submit',async e=>{
    const check=await fetch('/image-studio/status/'+encodeURIComponent(data.job_id));const state=await check.json();
    if(!check.ok)throw new Error(state.error||'Could not read generation status.');
    if(state.status==='done'){
-    const src='data:image/jpeg;base64,'+state.image;document.getElementById('preview').src=src;document.getElementById('download').href=src;result.style.display='block';
+    const imageUrl='/image-studio/image/'+encodeURIComponent(data.job_id);document.getElementById('preview').src=imageUrl+'?t='+Date.now();document.getElementById('download').href='/image-studio/download/'+encodeURIComponent(data.job_id);result.style.display='block';
     statusBox.textContent='Image generated successfully. Review it carefully against the original article before using it.';done=true;break;
    }
    if(state.status==='error')throw new Error(state.error||'Image generation failed.');
