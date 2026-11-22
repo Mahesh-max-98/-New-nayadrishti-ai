@@ -101,6 +101,27 @@ def _visual_direction(title, description, summary, visual_brief=""):
     headline = re.sub(r"[\u2010-\u2015\u2212]", "-", headline)
     details = re.sub(r"[\u2010-\u2015\u2212]", "-", details)
 
+    # A diplomatic arrival is not a generic airport/transport scene.
+    # Keep the aircraft and formal welcome as the dominant, visible story cues.
+    if (
+        any(term in headline for term in ("prime minister", "प्रधानमन्त्री", "प्रधान मन्त्री"))
+        and any(term in headline for term in ("arriv", "land", "visit", "आगमन", "पुगे", "भ्रमण"))
+        and any(term in (headline + " " + details) for term in ("new delhi", "नयाँ दिल्ली", "india", "भारत", "state visit", "राज्य भ्रमण"))
+    ):
+        return (
+            "DIPLOMATIC AIRPORT ARRIVAL: create one crisp, high-detail, realistic editorial "
+            "illustration of an official state-visit arrival at an international airport in "
+            "New Delhi. The dominant subject must be a large passenger aircraft stopped on "
+            "the airport apron, clearly visible from nose to tail, with a small formal welcome "
+            "delegation and airport ground staff in the middle distance. Show a believable "
+            "airport terminal and runway/apron in the background. The aircraft must be prominent "
+            "and unmistakable; do not substitute a car park, taxi queue, empty terminal facade "
+            "or generic road scene. Do not invent airline branding, flags, readable signs, "
+            "specific officials, a politician's face, or an unverified ceremony. Use sharp "
+            "focus, clear daylight, realistic aircraft proportions, fine surface detail and "
+            "natural photographic colour. One continuous scene, no text or logos."
+        )
+
     # Loksewa / public-service exam preparation is not a generic school story.
     if any(term in headline for term in ("loksewa", "public service commission", "psc exam", "लोकसेवा", "नायब सुब्बा", "शाखा अधिकृत", "तयारी कक्षा")):
         return (
