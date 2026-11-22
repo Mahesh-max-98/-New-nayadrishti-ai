@@ -89,7 +89,7 @@ body.light .sidebar,body.light .topbar{background:#fff}body.light .composer{back
      <button class="toolbtn" id="attach" type="button">＋ Reference</button>
      <button class="toolbtn" id="enhance" type="button">✧ Improve prompt</button>
      <select id="style" aria-label="Image style">
-      <option value="photorealistic">Photorealistic</option><option value="portrait">Professional portrait</option>
+      <option value="auto" selected>Auto detect style</option><option value="photorealistic">Photorealistic</option><option value="portrait">Professional portrait</option>
       <option value="cinematic">Cinematic photography</option><option value="editorial">News editorial</option>
       <option value="digital-art">Digital art</option><option value="illustration">Illustration</option>
       <option value="cartoon">Cartoon</option><option value="3d">3D rendering</option>
@@ -141,7 +141,7 @@ function addImageMessage(meta){
  const info=textNode('div',(meta.width||'')+' × '+(meta.height||'')+' · '+(meta.model_name||meta.model||'FLUX image model'),'image-info');card.appendChild(info);
  const actions=document.createElement('div');actions.className='image-actions';
  const action=(label,fn)=>{const b=textNode('button',label);b.type='button';b.addEventListener('click',fn);actions.appendChild(b);};
- const download=document.createElement('a');download.textContent='↓ Download';download.href=img.src;download.download='nayadrishti-image';actions.appendChild(download);
+ const download=document.createElement('a');download.textContent='↓ Download';download.href=img.src;download.download='nayadrishti-image.'+((meta.mime_type||'image/png').split('/')[1]||'png');actions.appendChild(download);
  action('Edit',()=>{currentImageId=meta.image_id;promptBox.placeholder='Describe what to change in this image...';promptBox.focus();status('Editing this image will create a new version and preserve this one.');});
  action('Variations',()=>runVariation(meta.image_id));
  action('Regenerate',()=>{currentImageId=null;promptBox.value=meta.original_prompt||promptBox.value;sendPrompt();});
@@ -211,7 +211,7 @@ async function sendPrompt(){
    status(state.message||'Working…');
   }
   if(!finished)throw new Error('This request exceeded the waiting window. Reopen the conversation to check saved history.');
-  promptBox.value='';$('enhancedPrompt').value='';$('promptExtra').classList.remove('show');enhancedText='';originalPromptSnapshot=null;uploaded=[];renderUploads();await loadHistory();
+  promptBox.value='';$('enhancedPrompt').value='';$('promptExtra').classList.remove('show');enhancedText='';originalPromptSnapshot=null;await loadHistory();
  }catch(e){status(e.message,true);}
  finally{$('send').disabled=false;$('enhance').disabled=false;}
 }
