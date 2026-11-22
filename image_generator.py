@@ -341,8 +341,10 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
             check.verify()
         return raw_image
 
-    # Cloudflare remains the primary provider. If its daily free quota is paused,
-    # an explicitly enabled Pollinations backup may be tried before the local graphic.
+    raw = None
+    last_error = None
+
+    # If Cloudflare has already reported its daily quota exhausted, skip it.
     if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
         raw = try_pollinations()
         if raw is None:
@@ -353,114 +355,113 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
     else:
         account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
         api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-        if not account_id or not api_token:
-            raw = try_pollinations()
-            if raw is None:
-                raise RuntimeError(
-                    "Cloudflare credentials are not configured and Pollinations backup is disabled."
-                )
-        else:
-            raw = None
+
+        if account_id and api_token:
             url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
-    last_error = None
-    raw = None
-    for attempt in range(2):
-        try:
-            response = requests.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_token}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, image/jpeg, image/png",
-                },
-                json={"prompt": prompt, "steps": 4},
-                timeout=(20, 150),
+            for attempt in range(2):
+                try:
+                    response = requests.post(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {api_token}",
+                            "Content-Type": "application/json",
+                            "Accept": "application/json, image/jpeg, image/png",
+                        },
+                        json={"prompt": prompt, "steps": 4},
+                        timeout=(20, 150),
+                    )
+                    if not response.ok:
+                        detail = response.text[:500].replace(chr(10), " ")
+                        lower_detail = detail.lower()
+                        quota_exhausted = (
+                            response.status_code == 429
+                            and (
+                                "4006" in lower_detail
+                                or "daily free allocation" in lower_detail
+                                or ("used up" in lower_detail and "neurons" in lower_detail)
+                            )
+                        )
+                        if quota_exhausted:
+                            _CLOUDFLARE_COOLDOWN_UNTIL = time.monotonic() + 6 * 60 * 60
+                            _CLOUDFLARE_COOLDOWN_REASON = (
+                                "Cloudflare reported that its daily free AI allocation is exhausted."
+                            )
+                        raise RuntimeError(
+                            f"Cloudflare image API error {response.status_code}: {detail}"
+                        )
+
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+                    if content_type.startswith("image/"):
+                        raw = response.content
+                    else:
+                        try:
+                            data = response.json()
+                        except ValueError as exc:
+                            raise RuntimeError(
+                                "Cloudflare returned neither image bytes nor valid JSON "
+                                f"(Content-Type: {content_type or 'unknown'})."
+                            ) from exc
+                        if data.get("success") is False:
+                            errors = data.get("errors") or []
+                            message = "; ".join(
+                                str(item.get("message", item)) for item in errors[:3]
+                            )
+                            raise RuntimeError(
+                                "Cloudflare rejected image generation: "
+                                + (message or "unknown API error")
+                            )
+                        result = data.get("result") or {}
+                        encoded = result.get("image") if isinstance(result, dict) else None
+                        if not encoded and isinstance(data.get("image"), str):
+                            encoded = data["image"]
+                        if not encoded:
+                            raise RuntimeError(
+                                "Cloudflare response had no base64 image. "
+                                "Check Workers AI token permissions, account ID and usage limits."
+                            )
+                        raw = base64.b64decode(encoded, validate=True)
+
+                    if not raw:
+                        raise RuntimeError("Cloudflare returned an empty image.")
+                    with Image.open(io.BytesIO(raw)) as check:
+                        check.verify()
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    raw = None
+                    # A daily quota response is not transient: do not retry it.
+                    if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
+                        break
+                    if attempt == 0:
+                        time.sleep(2)
+        else:
+            last_error = RuntimeError(
+                "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not configured."
             )
-            if not response.ok:
-                detail = response.text[:500].replace(chr(10), " ")
-                lower_detail = detail.lower()
-                quota_exhausted = (
-                    response.status_code == 429
-                    and (
-                        "4006" in lower_detail
-                        or "daily free allocation" in lower_detail
-                        or ("used up" in lower_detail and "neurons" in lower_detail)
-                    )
-                )
-                if quota_exhausted:
-                    # Provider controls the exact daily reset time.
-                    _CLOUDFLARE_COOLDOWN_UNTIL = time.monotonic() + 6 * 60 * 60
-                    _CLOUDFLARE_COOLDOWN_REASON = "Cloudflare reported that its daily free AI allocation is exhausted."
+
+        # Cloudflare failed or is not configured: try the opt-in backup once.
+        if raw is None:
+            try:
+                raw = try_pollinations()
+            except Exception as backup_error:
                 raise RuntimeError(
-                    f"Cloudflare image API error {response.status_code}: {detail}"
-                )
-
-            content_type = (response.headers.get("Content-Type") or "").lower()
-            if content_type.startswith("image/"):
-                raw = response.content
-            else:
-                try:
-                    data = response.json()
-                except ValueError as exc:
-                    raise RuntimeError(
-                        "Cloudflare returned neither image bytes nor valid JSON "
-                        f"(Content-Type: {content_type or 'unknown'})."
-                    ) from exc
-                if data.get("success") is False:
-                    errors = data.get("errors") or []
-                    message = "; ".join(
-                        str(item.get("message", item)) for item in errors[:3]
-                    )
-                    raise RuntimeError("Cloudflare rejected image generation: " + (message or "unknown API error"))
-                result = data.get("result") or {}
-                encoded = result.get("image") if isinstance(result, dict) else None
-                if not encoded and isinstance(data.get("image"), str):
-                    encoded = data["image"]
-                if not encoded:
-                    raise RuntimeError(
-                        "Cloudflare response had no base64 image. "
-                        "Check Workers AI token permissions, account ID and usage limits."
-                    )
-                raw = base64.b64decode(encoded, validate=True)
-
-            if not raw:
-                raise RuntimeError("Cloudflare returned an empty image.")
-            with Image.open(io.BytesIO(raw)) as check:
-                check.verify()
-            break
-        except Exception as exc:
-            last_error = exc
-            raw = None
-            # A daily-quota response is not transient: do not make a second
-            # billable/provider request for the same story.
-            if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
-                break
-            if attempt == 0:
-                time.sleep(2)
+                    f"Cloudflare image generation failed: {last_error}; "
+                    f"Pollinations backup failed: {backup_error}"
+                ) from backup_error
             if raw is None:
-                # Only use the backup after Cloudflare has genuinely failed.
-                # A missing/disabled backup simply preserves the existing fallback-graphic path.
-                try:
-                    raw = try_pollinations()
-                except Exception as backup_error:
-                    raise RuntimeError(
-                        f"Cloudflare image generation failed: {last_error}; "
-                        f"Pollinations backup failed: {backup_error}"
-                    ) from backup_error
-                if raw is None:
-                    raise RuntimeError(
-                        f"Cloudflare image generation failed after retry: {last_error}"
-                    ) from last_error
+                raise RuntimeError(
+                    f"Image generation unavailable; using the branded editorial graphic. {last_error}"
+                ) from last_error
 
     try:
         image = Image.open(io.BytesIO(raw)).convert("RGB")
         if image.width < 256 or image.height < 256:
             raise ValueError(f"Generated image is unexpectedly small: {image.size}")
-        lines = [line.strip() for line in (summary or "").splitlines() if line.strip()]
-        headline = lines[2] if len(lines) >= 3 else title
-        return _compose_news_card(image, headline, summary, ai_generated=True)
+        return _compose_news_card(image, "", summary, ai_generated=True)
     except Exception as exc:
-        raise RuntimeError(f"Generated image could not be decoded or branded: {type(exc).__name__}: {exc}") from exc
+        raise RuntimeError(
+            f"Generated image could not be decoded or branded: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def create_fallback_news_graphic(title, summary=""):
