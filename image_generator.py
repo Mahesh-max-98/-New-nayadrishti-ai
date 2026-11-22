@@ -490,7 +490,13 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
         else _research_visual_plan(title, description, summary, visual_brief)
     )
     if researched_plan:
-        visual_brief = "ARTICLE-BASED VISUAL PLAN: " + researched_plan
+        # Preserve the user's selected style and art direction alongside the
+        # researched scene plan; research must not silently erase UI controls.
+        visual_brief = (
+            str(visual_brief or "")[:1400]
+            + " ARTICLE-BASED VISUAL PLAN: "
+            + str(researched_plan)[:1400]
+        )
     global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
 
     prompt = _build_image_prompt(title, description, summary, visual_brief)
