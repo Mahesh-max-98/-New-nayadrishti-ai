@@ -133,13 +133,14 @@ def _visual_direction(title, description, summary, visual_brief=""):
         return (
             "OFFICIAL NEPAL-INDIA STATE VISIT NEWS: create a photorealistic, "
             "respectful editorial scene at a formal diplomatic arrival in New Delhi, India. "
-            "Show a Nepal government delegation arriving at a modern Indian airport or "
-            "official government venue, with subtle Nepal and India national flags visible. "
-            "If depicting a person, show only a generic non-identifiable official from behind "
-            "or at a distance; do NOT invent or imitate Prime Minister Balen Shah's face. "
+            "Show a formal New Delhi airport arrival setting: a Nepal government aircraft "
+            "or official airport arrival entrance, a clearly visible Nepal flag and Indian flag, "
+            "and a dignified official motorcade area. Use an empty scene with NO PEOPLE and "
+            "NO PORTRAITS so no imaginary person can be mistaken for the Prime Minister. "
+            "Do NOT invent an aircraft registration, government logo, meeting or handshake. "
             "No cricket ground, sports equipment, student, young man writing, classroom, "
-            "unrelated portrait, fabricated handshake or meeting, readable signs, text or logos. "
-            "The image must unmistakably communicate an official Nepal-India diplomatic visit."
+            "unrelated portrait, readable signs, text or logos. The image must unmistakably "
+            "communicate a Nepal-India diplomatic state visit in New Delhi."
         )
 
     # Detect the kind of event, not only the sport/category. This prevents
