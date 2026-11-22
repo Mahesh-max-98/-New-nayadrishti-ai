@@ -366,45 +366,109 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
 
     prompt = _build_image_prompt(title, description, summary, visual_brief)
-    # Strict zero-cost mode: never call Pollinations. Its requests may consume
-    # account credits, even if an API key is already configured in Render.
-    # Cloudflare Workers AI remains the only image-generation API in this app.
-    def try_pollinations():
-        return None
-        from urllib.parse import quote
-
-        image_url = "https://gen.pollinations.ai/image/" + quote(prompt, safe="")
-        response = requests.get(
-            image_url,
-            params={
-                "model": os.getenv("POLLINATIONS_IMAGE_MODEL", "black-forest-labs/flux.1-schnell").strip(),
-                "width": 1200,
-                "height": 900,
+    # Zero-cost fallback: AI Horde is a community-run service powered by volunteer GPUs.
+    # Anonymous jobs are shared publicly by the service; only public news context is sent.
+    def try_ai_horde():
+        base = "https://aihorde.net/api/v2"
+        headers = {
+            "apikey": "0000000000",
+            "Client-Agent": "NayaDrishti:1.0:github.com/Mahesh-max-98/-New-nayadrishti-ai",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        payload = {
+            "prompt": prompt,
+            "params": {
+                "width": 768,
+                "height": 512,
+                "steps": 20,
+                "n": 1,
+                "cfg_scale": 7.0,
+                "karras": True,
             },
-            headers={"Authorization": f"Bearer {pollinations_key}", "Accept": "image/*"},
-            timeout=(20, 150),
+            "nsfw": False,
+            "censor_nsfw": True,
+            "r2": True,
+            "shared": True,
+        }
+        submitted = requests.post(
+            base + "/generate/async",
+            headers=headers,
+            json=payload,
+            timeout=(15, 35),
         )
-        if not response.ok:
-            detail = response.text[:400].replace(chr(10), " ")
-            raise RuntimeError(f"Pollinations image API error {response.status_code}: {detail}")
-        raw_image = response.content
-        if not raw_image:
-            raise RuntimeError("Pollinations returned an empty image.")
-        with Image.open(io.BytesIO(raw_image)) as check:
-            check.verify()
-        return raw_image
+        if not submitted.ok:
+            raise RuntimeError(
+                "AI Horde submit HTTP " + str(submitted.status_code) + ": "
+                + submitted.text[:300].replace(chr(10), " ")
+            )
+        request_id = (submitted.json() or {}).get("id")
+        if not request_id:
+            raise RuntimeError("AI Horde did not return a generation request ID.")
+
+        # Community workers can be busy. Wait up to 150 seconds, then cancel
+        # the queued job and use the branded fallback rather than blocking forever.
+        deadline = time.monotonic() + 150
+        while time.monotonic() < deadline:
+            time.sleep(5)
+            status_response = requests.get(
+                base + "/generate/check/" + str(request_id),
+                headers=headers,
+                timeout=(10, 20),
+            )
+            if not status_response.ok:
+                raise RuntimeError(
+                    "AI Horde status HTTP " + str(status_response.status_code)
+                )
+            status = status_response.json() or {}
+            if status.get("faulted"):
+                raise RuntimeError("AI Horde could not complete the image request.")
+            if status.get("done") or status.get("finished", 0) >= 1:
+                result_response = requests.get(
+                    base + "/generate/status/" + str(request_id),
+                    headers=headers,
+                    timeout=(10, 30),
+                )
+                if not result_response.ok:
+                    raise RuntimeError(
+                        "AI Horde result HTTP " + str(result_response.status_code)
+                    )
+                generations = (result_response.json() or {}).get("generations") or []
+                image_url = next(
+                    (item.get("img") for item in generations
+                     if isinstance(item, dict) and item.get("img")),
+                    None,
+                )
+                if not image_url:
+                    raise RuntimeError("AI Horde finished without returning an image.")
+                image_response = requests.get(
+                    image_url,
+                    headers={"Accept": "image/*"},
+                    timeout=(15, 60),
+                )
+                if not image_response.ok or not image_response.content:
+                    raise RuntimeError("AI Horde image download failed.")
+                image_bytes = image_response.content
+                with Image.open(io.BytesIO(image_bytes)) as check:
+                    check.verify()
+                return image_bytes
+
+        try:
+            requests.delete(
+                base + "/generate/status/" + str(request_id),
+                headers=headers,
+                timeout=(8, 12),
+            )
+        except Exception:
+            pass
+        raise RuntimeError("AI Horde community queue did not finish within 150 seconds.")
 
     raw = None
     last_error = None
 
     # If Cloudflare has already reported its daily quota exhausted, skip it.
     if time.monotonic() < _CLOUDFLARE_COOLDOWN_UNTIL:
-        raw = try_pollinations()
-        if raw is None:
-            raise RuntimeError(
-                "Cloudflare free image quota is paused and Pollinations backup is not enabled; "
-                "using the branded editorial graphic instead. " + _CLOUDFLARE_COOLDOWN_REASON
-            )
+        raw = try_ai_horde()
     else:
         account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
         api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -492,19 +556,15 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
                 "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not configured."
             )
 
-        # Cloudflare failed or is not configured: try the opt-in backup once.
+        # Cloudflare failed or is not configured: use the free AI Horde community backup.
         if raw is None:
             try:
-                raw = try_pollinations()
+                raw = try_ai_horde()
             except Exception as backup_error:
                 raise RuntimeError(
                     f"Cloudflare image generation failed: {last_error}; "
-                    f"Pollinations backup failed: {backup_error}"
+                    f"AI Horde free backup failed: {backup_error}"
                 ) from backup_error
-            if raw is None:
-                raise RuntimeError(
-                    f"Image generation unavailable; using the branded editorial graphic. {last_error}"
-                ) from last_error
 
     # Run a visual review before branding. A mismatch triggers one automatic
     # regeneration with the reviewer's concrete correction; no button is needed.
