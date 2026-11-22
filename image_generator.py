@@ -274,8 +274,8 @@ def _research_visual_plan(title, description, summary, research_context=""):
         "If exact location/background is not established, explicitly write LOCATION NOT ESTABLISHED and choose a distinct neutral symbolic scene tied to the actual subject.\n"
         "Return labelled fields: SUBJECT, ACTION, LOCATION STATUS, SCENE/BACKGROUND, FOREGROUND, MIDGROUND, BACKGROUND DETAILS, IDENTITY, MUST INCLUDE, MUST AVOID, CONFIDENCE. Be specific, under 160 words.\n"
         "HEADLINE (read pass 1): " + str(title or "")[:350] +
-        "\\nHEADLINE (read pass 2): " + str(title or "")[:350] +
-        "\\nHEADLINE (read pass 3): " + str(title or "")[:350] +
+        "\nHEADLINE (read pass 2): " + str(title or "")[:350] +
+        "\nHEADLINE (read pass 3): " + str(title or "")[:350] +
         "\nARTICLE: " + str(description or "")[:6500] +
         "\nPOST: " + str(summary or "")[:600] +
         "\nRESEARCH LEADS (not proof): " + str(research_context or "")[:2200]
