@@ -58,10 +58,11 @@ async function makePost(){
    if(!sr.ok)throw new Error(job.error||'Job status unavailable.');
    if(job.status==='running'||job.status==='queued'){status.textContent=job.message||'Working...';setTimeout(()=>poll().catch(fail),2500);return;}
    if(job.status==='error')throw new Error(job.error||'Generation failed.');
-   status.textContent='Your photo post is ready!';
+   status.textContent=job.image_error?'Joke created, but the photo provider is temporarily unavailable. Your joke is saved below.':'Your photo post is ready!';
    const quote=document.createElement('p');quote.textContent=job.quote||'';result.appendChild(quote);
-   const image=document.createElement('img');image.alt='Roman Nepali joke written on a natural photo';image.src='/funny-studio/image/'+data.job_id;result.appendChild(image);
-   const link=document.createElement('a');link.href='/funny-studio/download/'+data.job_id;link.textContent='Download image';result.appendChild(link);
+   if(job.has_image){const image=document.createElement('img');image.alt='Roman Nepali joke written on a natural photo';image.src='/funny-studio/image/'+data.job_id;result.appendChild(image);
+   const link=document.createElement('a');link.href='/funny-studio/download/'+data.job_id;link.textContent='Download image';result.appendChild(link);}
+   else if(job.image_error){const note=document.createElement('p');note.textContent='Image error: '+job.image_error;result.appendChild(note);}
    button.disabled=false;
   }
   await poll();
@@ -90,10 +91,11 @@ def generate():
         with _lock:
             _jobs[job_id]={"status":"running","message":"Writing your Roman Nepali joke..."}
         try:
-            quote,image_bytes=create_funny_post(topic,kind)
+            quote,image_bytes,image_error=create_funny_post(topic,kind)
             with _lock:
-                _jobs[job_id]={"status":"done","message":"Post created.","quote":quote,
-                               "image":base64.b64encode(image_bytes).decode("ascii")}
+                _jobs[job_id]={"status":"done","message":"Joke created.","quote":quote,
+                               "image_error":image_error,"has_image":bool(image_bytes),
+                               "image":base64.b64encode(image_bytes).decode("ascii") if image_bytes else None}
         except Exception as exc:
             with _lock:
                 _jobs[job_id]={"status":"error","error":type(exc).__name__+": "+str(exc)[:240]}
