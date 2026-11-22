@@ -442,4 +442,13 @@ def check_feeds():
         "and image hosts are explicitly allowlisted; otherwise a labelled AI illustration "
         "is used."
     )
+    total_stale = sum(item.get("stale_skipped", 0) for item in result["feed_details"])
+    total_undated = sum(item.get("undated_skipped", 0) for item in result["feed_details"])
+    log.info(
+        "Feed check summary: checked=%s/%s, new=%s, drafts=%s, duplicates=%s, stale_skipped=%s, undated_skipped=%s, errors=%s, publisher_photos=%s, ai_illustrations=%s, fallback_graphics=%s",
+        result["feeds_checked"], result["feeds_configured"], result["new_items"],
+        result["drafts_saved"], result["already_seen"], total_stale, total_undated,
+        len(result["errors"]), result["publisher_photos_used"],
+        result["ai_illustrations_used"], result["fallback_graphics_used"],
+    )
     return result
