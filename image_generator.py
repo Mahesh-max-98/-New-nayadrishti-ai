@@ -344,7 +344,10 @@ def _check_visual_match(raw_image, title, description, visual_plan):
     if not api_key or not enabled:
         return True, "visual QA not enabled"
     try:
-        encoded = base64.b64encode(raw_image).decode("ascii")
+        with Image.open(io.BytesIO(raw_image)) as source_image:
+            normalized = io.BytesIO()
+            source_image.convert("RGB").save(normalized, format="JPEG", quality=88)
+            encoded = base64.b64encode(normalized.getvalue()).decode("ascii")
         model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
         prompt = (
             "Strictly compare the image with the news article and approved visual plan. "
@@ -387,7 +390,10 @@ def _check_visual_match(raw_image, title, description, visual_plan):
 
 def generate_news_image(title, description="", summary="", visual_brief="", _qa_retry=0):
     """Research the article, then generate a specific editorial illustration."""
-    researched_plan = _research_visual_plan(title, description, summary, visual_brief)
+    researched_plan = (
+        visual_brief if _qa_retry > 0
+        else _research_visual_plan(title, description, summary, visual_brief)
+    )
     if researched_plan:
         visual_brief = "ARTICLE-BASED VISUAL PLAN: " + researched_plan
     global _CLOUDFLARE_COOLDOWN_UNTIL, _CLOUDFLARE_COOLDOWN_REASON
