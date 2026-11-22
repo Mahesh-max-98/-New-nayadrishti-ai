@@ -613,17 +613,18 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
             url = f"{API_BASE}/{account_id}/ai/run/{MODEL}"
             for attempt in range(1):
                 try:
+                    # FLUX.2 Klein 4B requires multipart/form-data. Do not
+                    # set Content-Type manually: requests must add the boundary.
                     response = requests.post(
                         url,
                         headers={
                             "Authorization": f"Bearer {api_token}",
-                            "Content-Type": "application/json",
                             "Accept": "application/json, image/jpeg, image/png",
                         },
-                        json={
-                            "prompt": prompt,
-                            "width": 1024,
-                            "height": 768,
+                        files={
+                            "prompt": (None, prompt),
+                            "width": (None, "1024"),
+                            "height": (None, "768"),
                         },
                         timeout=(25, 180),
                     )
