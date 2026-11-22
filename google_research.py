@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from urllib.parse import urlencode
 
 import feedparser
@@ -9,6 +10,10 @@ log = logging.getLogger("nayadrishti.google_research")
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
 GOOGLE_CSE_URL = "https://www.googleapis.com/customsearch/v1"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Wikimedia Commons is optional; pause requests after provider rate limits.
+_COMMONS_COOLDOWN_UNTIL = 0.0
+_COMMONS_CACHE = {}
 
 
 def _clean(value, limit=350):
@@ -46,7 +51,15 @@ def _google_news_results(title):
 
 
 def _commons_image_candidates(title):
-    """Find openly licensed visual-reference images on Wikimedia Commons."""
+    """Find optional Commons references with caching and a strict 30-minute 429 backoff."""
+    global _COMMONS_COOLDOWN_UNTIL
+    cache_key = _clean(title, 180).lower()
+    cached = _COMMONS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    if time.monotonic() < _COMMONS_COOLDOWN_UNTIL:
+        return []
+
     params = {
         "action": "query",
         "generator": "search",
@@ -64,6 +77,10 @@ def _commons_image_candidates(title):
         headers={"User-Agent": "NayaDrishtiAI/1.0 (news visual research)"},
         timeout=(8, 20),
     )
+    if response.status_code == 429:
+        _COMMONS_COOLDOWN_UNTIL = time.monotonic() + 1800
+        log.warning("Wikimedia Commons rate limit reached; pausing optional image-reference searches for 30 minutes.")
+        return []
     response.raise_for_status()
     pages = (response.json().get("query") or {}).get("pages") or {}
     candidates = []
@@ -88,6 +105,9 @@ def _commons_image_candidates(title):
             "source": "Wikimedia Commons",
             "license": license_name,
         })
+    _COMMONS_CACHE[cache_key] = candidates
+    if len(_COMMONS_CACHE) > 250:
+        _COMMONS_CACHE.pop(next(iter(_COMMONS_CACHE)))
     return candidates
 
 
