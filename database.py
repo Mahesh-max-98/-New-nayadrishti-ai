@@ -138,6 +138,28 @@ def get_draft_for_image_retry(item_id):
         return dict(row)
 
 
+
+def get_drafts_needing_image_retry(limit=2):
+    """Find unpublished drafts that need an image retry, even if their RSS item disappeared."""
+    with connection() as db:
+        rows = db.execute("""
+            SELECT item_id, title, source, url, summary, image_status,
+                   image_error, image_last_attempt,
+                   (image_data IS NOT NULL) AS has_image
+            FROM drafts
+            WHERE status='draft'
+              AND image_status IN ('pending', 'failed', 'fallback_graphic')
+              AND (image_data IS NULL OR image_status='fallback_graphic')
+              AND (image_last_attempt IS NULL
+                   OR image_last_attempt < CURRENT_TIMESTAMP - INTERVAL '30 minutes')
+            ORDER BY
+              CASE WHEN image_data IS NULL THEN 0 ELSE 1 END,
+              created_at ASC
+            LIMIT %s
+        """, (max(1, min(int(limit), 5)),)).fetchall()
+        return [dict(row) for row in rows]
+
+
 def replace_draft_image(item_id, image_data, image_status="fallback_graphic"):
     """Replace a saved draft image explicitly, including an older fallback graphic."""
     with connection() as db:
