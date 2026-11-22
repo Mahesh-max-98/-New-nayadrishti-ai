@@ -2,6 +2,7 @@ import base64
 import io
 import os
 import re
+import time
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -371,3 +372,53 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
         return _compose_news_card(image, headline, summary, ai_generated=True)
     except Exception as exc:
         raise RuntimeError(f"Generated image could not be decoded or branded: {type(exc).__name__}: {exc}") from exc
+
+
+def create_fallback_news_graphic(title, summary=""):
+    """Create an honest branded editorial graphic when image providers are unavailable."""
+    canvas = Image.new("RGB", (1200, 900), (12, 24, 48))
+    draw = ImageDraw.Draw(canvas)
+    # Restrained geometric background; intentionally not presented as a photograph.
+    for y in range(900):
+        shade = int(22 + 34 * y / 900)
+        draw.line((0, y, 1200, y), fill=(8, shade, min(90, shade + 35)))
+    draw.ellipse((760, -180, 1370, 430), outline=(55, 105, 160), width=5)
+    draw.ellipse((840, -100, 1280, 340), outline=(35, 80, 130), width=3)
+    draw.rounded_rectangle((64, 70, 1136, 820), radius=34,
+                           outline=(75, 125, 175), width=3)
+    font_path = next((p for p in (
+        os.getenv("NEWS_FONT_PATH", ""),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+    ) if p and os.path.isfile(p)), None)
+    try:
+        headline_font = ImageFont.truetype(font_path, 54) if font_path else ImageFont.load_default()
+        label_font = ImageFont.truetype(font_path, 26) if font_path else ImageFont.load_default()
+    except OSError:
+        headline_font = label_font = ImageFont.load_default()
+    draw.rounded_rectangle((100, 120, 560, 178), radius=14, fill=(20, 75, 125))
+    draw.text((122, 135), "NAYADRISHTI  |  NEWS UPDATE", font=label_font, fill=(255, 255, 255))
+    headline = re.sub(r"\\s+", " ", (title or "Latest News").strip())[:180]
+    words, lines, line = headline.split(), [], ""
+    for word in words:
+        candidate = (line + " " + word).strip()
+        if draw.textbbox((0, 0), candidate, font=headline_font)[2] <= 980:
+            line = candidate
+        else:
+            if line:
+                lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+    y = 300
+    for line in lines[:4]:
+        draw.text((105, y), line, font=headline_font, fill=(255, 255, 255))
+        y += 78
+    draw.line((105, 690, 1090, 690), fill=(75, 125, 175), width=3)
+    draw.text((105, 725), "EDITORIAL GRAPHIC — NOT A NEWS PHOTOGRAPH",
+              font=label_font, fill=(210, 225, 240))
+    draw.text((105, 775), "NayaDrishti  •  नयाँ दृष्टि, नयाँ खबर।",
+              font=label_font, fill=(255, 255, 255))
+    output = io.BytesIO()
+    canvas.save(output, format="JPEG", quality=88, optimize=True)
+    return output.getvalue()
