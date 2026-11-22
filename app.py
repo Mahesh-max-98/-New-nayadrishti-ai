@@ -6,7 +6,8 @@ from functools import wraps
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for, Response
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import init_db, get_drafts, get_draft_image
+from database import init_db, get_drafts, get_draft_image, replace_draft_image
+from image_generator import create_fallback_news_graphic
 from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
@@ -132,13 +133,23 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
 {% for d in drafts %}<article class="draft"><h3>{{ d.title }}</h3>
 <div class="small">Source: {{ d.source or 'Unknown' }} · {{ d.created_at }}</div>
-{% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="AI-generated editorial illustration for this news draft">
+{% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
+{% if d.image_status == 'fallback_graphic' %}<button type="button" onclick="refreshGraphic('{{ d.item_id }}', this)">Refresh graphic design</button><span class="small">Rebuilds this saved graphic using the latest design without using AI credits.</span>{% endif %}
 {% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
 <div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div><p>{{ d.summary }}</p>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
 {% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
+async function refreshGraphic(itemId,button){
+ button.disabled=true;button.textContent='Refreshing design...';
+ try{
+  const response=await fetch('/refresh-fallback/'+itemId,{method:'POST',headers:{'Accept':'application/json'}});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
+  location.reload();
+ }catch(error){button.disabled=false;button.textContent='Refresh graphic design';alert('Could not refresh graphic: '+error.message);}
+}
 async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
 b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News and images are being processed in the background.';
 try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});const data=await r.json();
@@ -206,13 +217,32 @@ def health():
     return jsonify(status="ok", service="NayaDrishti AI")
 
 
+@app.post("/refresh-fallback/<item_id>")
+@login_required
+def refresh_fallback(item_id):
+    """Rebuild an existing fallback graphic using the current design template."""
+    draft = next((item for item in get_drafts(limit=100) if item["item_id"] == item_id), None)
+    if not draft:
+        return jsonify(error="Draft not found."), 404
+    if draft.get("image_status") != "fallback_graphic":
+        return jsonify(error="Only fallback graphics can be refreshed here."), 409
+    try:
+        graphic = create_fallback_news_graphic(draft["title"], draft.get("summary") or "")
+        if not replace_draft_image(item_id, graphic, "fallback_graphic"):
+            return jsonify(error="Could not save the refreshed graphic."), 500
+        return jsonify(success=True, message="Fallback graphic refreshed.")
+    except Exception as exc:
+        app.logger.exception("Could not refresh fallback graphic for %s", item_id)
+        return jsonify(error=f"Graphic refresh failed: {type(exc).__name__}: {str(exc)[:180]}"), 500
+
+
 @app.get("/draft-image/<item_id>")
 @login_required
 def draft_image(item_id):
     data = get_draft_image(item_id)
     if not data:
         return "Image not found.", 404
-    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "private, no-store, max-age=0"})
 
 
 @app.route("/run-check", methods=["GET", "POST"])
