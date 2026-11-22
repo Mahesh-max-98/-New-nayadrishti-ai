@@ -23,30 +23,50 @@ def _clean(value, limit=350):
     return re.sub(r"\s+", " ", value).strip()[:limit]
 
 
-def _google_news_results(title):
-    params = {
-        "q": title[:180],
-        "hl": "en",
-        "gl": "US",
-        "ceid": "US:en",
-    }
-    response = requests.get(
-        GOOGLE_NEWS_RSS + "?" + urlencode(params),
-        headers={"User-Agent": "NayaDrishtiAI/1.0 (news research)"},
-        timeout=(8, 15),
-    )
-    response.raise_for_status()
-    parsed = feedparser.parse(response.content)
+def _google_news_results(title, description=""):
+    """Search by both the original headline and the article's opening facts."""
+    queries = []
+    headline_query = _clean(title, 180)
+    if headline_query:
+        queries.append(headline_query)
+    # The opening of the source article often contains the who/what/where
+    # that a short RSS headline omits. Search it separately as corroboration.
+    context_query = _clean(description, 220)
+    if context_query and context_query.lower() != headline_query.lower():
+        queries.append(context_query)
+
     results = []
-    for entry in parsed.entries[:5]:
-        headline = _clean(entry.get("title"), 220)
-        summary = _clean(entry.get("summary") or entry.get("description"), 350)
-        if headline:
-            results.append({
-                "title": headline,
-                "summary": summary,
-                "link": (entry.get("link") or "")[:500],
-            })
+    seen = set()
+    for query in queries[:2]:
+        params = {
+            "q": query,
+            "hl": "en",
+            "gl": "US",
+            "ceid": "US:en",
+        }
+        response = requests.get(
+            GOOGLE_NEWS_RSS + "?" + urlencode(params),
+            headers={"User-Agent": "NayaDrishtiAI/1.0 (news research)"},
+            timeout=(8, 15),
+        )
+        response.raise_for_status()
+        parsed = feedparser.parse(response.content)
+        for entry in parsed.entries[:5]:
+            headline = _clean(entry.get("title"), 220)
+            summary = _clean(entry.get("summary") or entry.get("description"), 350)
+            link = (entry.get("link") or "")[:500]
+            key = link or headline.lower()
+            if headline and key not in seen:
+                seen.add(key)
+                results.append({
+                    "title": headline,
+                    "summary": summary,
+                    "link": link,
+                })
+            if len(results) >= 7:
+                break
+        if len(results) >= 7:
+            break
     return results
 
 
@@ -241,18 +261,21 @@ def research_story(title, description=""):
         "research_status": "partial",
     }
     try:
-        result["news_results"] = _google_news_results(title)
+        result["news_results"] = _google_news_results(title, description)
     except Exception as exc:
         log.warning("Google News research unavailable: %s", exc)
 
     if result["news_results"]:
         lines = []
-        for item in result["news_results"][:4]:
+        for item in result["news_results"][:5]:
             line = "- " + item["title"]
             if item["summary"]:
                 line += ": " + item["summary"]
             lines.append(line)
-        result["news_context"] = "Google News search leads (not independent proof): " + " ".join(lines)
+        result["news_context"] = (
+            "CORROBORATION LEADS ONLY (verify against the original article; "
+            "not proof and never override it): " + " ".join(lines)
+        )
         result["research_status"] = "google_news_found"
 
     try:
