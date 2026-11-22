@@ -317,6 +317,80 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     return prompt[:1650]
 
 
+def _check_with_horde_caption(raw_image, visual_plan):
+    """Use AI Horde's free community caption workers when Groq Vision is rate-limited."""
+    base = "https://aihorde.net/api/v2"
+    headers = {
+        "Content-Type": "application/json",
+        "Client-Agent": "NayaDrishtiAI:1.0:news-image-quality-check",
+    }
+    encoded = base64.b64encode(raw_image).decode("ascii")
+    response = requests.post(
+        base + "/interrogate/async",
+        headers=headers,
+        json={
+            "source_image": "data:image/jpeg;base64," + encoded,
+            "forms": [{"name": "caption"}],
+            "slow_workers": True,
+        },
+        timeout=(10, 25),
+    )
+    if not response.ok:
+        raise RuntimeError("AI Horde caption request HTTP " + str(response.status_code))
+    request_id = (response.json() or {}).get("id")
+    if not request_id:
+        raise RuntimeError("AI Horde did not return a caption request ID")
+
+    caption = ""
+    deadline = time.monotonic() + 95
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        check = requests.get(
+            base + "/interrogate/status/" + str(request_id),
+            headers=headers,
+            timeout=(8, 15),
+        )
+        if not check.ok:
+            raise RuntimeError("AI Horde caption status HTTP " + str(check.status_code))
+        data = check.json() or {}
+        forms = data.get("forms") or []
+        for item in forms:
+            result = item.get("result") or {}
+            if isinstance(result, dict):
+                caption = str(result.get("caption") or result.get("text") or "").strip()
+            elif isinstance(result, str):
+                caption = result.strip()
+        if caption:
+            break
+        states = [str(item.get("state", "")).lower() for item in forms]
+        overall = str(data.get("state", "")).lower()
+        if overall in ("faulted", "cancelled", "censored") or any(x in ("faulted", "cancelled", "censored") for x in states):
+            raise RuntimeError("AI Horde caption worker could not review this image")
+    if not caption:
+        raise RuntimeError("AI Horde free caption workers did not respond in time")
+
+    # Conservative lexical check against the researched English scene plan.
+    # A caption with no meaningful scene overlap is rejected, never auto-approved.
+    stop = {
+        "with", "from", "that", "this", "there", "their", "they", "them", "into",
+        "onto", "over", "under", "near", "some", "many", "several", "people",
+        "person", "image", "photo", "picture", "scene", "showing", "shows",
+        "have", "has", "are", "was", "were", "and", "the", "for", "its", "one",
+        "young", "adult", "small", "group", "using", "sitting", "standing",
+    }
+    def words(value):
+        return {
+            word for word in re.findall(r"[a-z]{4,}", str(value or "").lower())
+            if word not in stop
+        }
+    caption_words = words(caption)
+    plan_words = words(visual_plan)
+    overlap = caption_words & plan_words
+    if len(overlap) < 2:
+        return False, "AI Horde caption did not confirm the researched scene: " + caption[:180]
+    return True, "AI Horde caption review: " + caption[:180]
+
+
 def _check_visual_match(raw_image, title, description, visual_plan):
     """Reject generated images whose subject or background visibly contradicts the article."""
     api_key = os.getenv("GROQ_API_KEY", "").strip()
@@ -371,8 +445,13 @@ def _check_visual_match(raw_image, title, description, visual_plan):
         raise RuntimeError("Vision QA returned unclear result: " + answer[:140])
     except Exception as exc:
         import logging
-        logging.getLogger("nayadrishti.images").warning("Visual QA unavailable; image rejected rather than accepted unverified: %s", exc)
-        return False, "QA_UNAVAILABLE: " + str(exc)[:180]
+        logger = logging.getLogger("nayadrishti.images")
+        logger.warning("Groq visual QA unavailable; trying AI Horde caption review: %s", exc)
+        try:
+            return _check_with_horde_caption(raw_image, visual_plan)
+        except Exception as backup_exc:
+            logger.warning("AI Horde caption QA also unavailable: %s", backup_exc)
+            return False, "QA_UNAVAILABLE: Groq Vision and free AI Horde caption review unavailable"
 
 def generate_news_image(title, description="", summary="", visual_brief="", _qa_retry=0):
     """Research the article, then generate a specific editorial illustration."""
