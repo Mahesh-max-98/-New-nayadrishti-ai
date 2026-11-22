@@ -185,7 +185,7 @@ async function enhancePrompt(){
  const original=promptBox.value.trim();if(!original){status('Write a prompt first.',true);return;}
  $('enhance').disabled=true;status('Improving your prompt with Groq…');
  try{const r=await fetch('/api/images/enhance-prompt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:original,style:$('style').value})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Prompt enhancement failed.');
- enhancedText=data.enhanced_prompt;originalPromptSnapshot=original;$('enhancedPrompt').value=enhancedText;$('promptExtra').classList.add('show');status('Enhanced prompt ready. Review it, edit it, or keep your original.');}
+ enhancedText=data.enhanced_prompt;originalPromptSnapshot=original;if(data.detected_style&&[...$('style').options].some(option=>option.value===data.detected_style))$('style').value=data.detected_style;$('enhancedPrompt').value=enhancedText;$('promptExtra').classList.add('show');status('Enhanced prompt ready. Review it, edit it, or keep your original.');}
  catch(e){status(e.message,true);}finally{$('enhance').disabled=false;}
 }
 async function sendPrompt(){
