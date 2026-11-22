@@ -274,52 +274,37 @@ def _visual_direction(title, description, summary, visual_brief=""):
 
 
 def _build_image_prompt(title, description, summary, visual_brief=""):
-    """Build a detailed, headline-faithful editorial photography prompt."""
-    headline = re.sub(r"\s+", " ", (title or "").strip())[:260]
-    facts = re.sub(r"\s+", " ", (description or "").strip())[:520]
-    post = re.sub(r"\s+", " ", (summary or "").strip())[:260]
-    brief = re.sub(r"\s+", " ", (visual_brief or "").strip())[:320]
+    """Build a compact, story-locked prompt; put the subject first so providers cannot truncate it."""
+    headline = re.sub(r"\\s+", " ", (title or "").strip())[:240]
+    facts = re.sub(r"\\s+", " ", (description or "").strip())[:900]
+    post = re.sub(r"\\s+", " ", (summary or "").strip())[:240]
+    brief = re.sub(r"\\s+", " ", (visual_brief or "").strip())[:180]
     direction = _visual_direction(headline, facts, post, brief)
 
-    # Image models perform better when the story subject and physical scene are
-    # specified before style. Headline typography is always composed separately.
+    # Put the exact scene and exclusions at the beginning. The previous long
+    # prompt placed these near the end, where the 2,048-character cap could cut
+    # off the most important story-specific instructions.
     prompt = (
-        "Create ONE premium photorealistic editorial NEWS IMAGE for a professional "
-        "Nepali digital newsroom. This is an illustrative reconstruction, NOT documentary "
-        "evidence and NOT a real photograph of an event. Output image background only. "
-        "ABSOLUTELY NO TEXT: no headline, letters, numbers, captions, signs, logos, "
-        "watermarks, badges, fake writing or typography. NayaDrishti will add all text "
-        "afterward. "
-        "STORY MATCH IS THE HIGHEST PRIORITY. Read the headline and facts carefully. "
-        "Show the actual central subject and the specific action or situation described; "
-        "do not merely show a generic image for the category. Use one clear visual idea, "
-        "one coherent location and physically plausible objects. "
-        "SCENE DESIGN: clear main subject in the foreground, relevant setting in the "
-        "middle distance, restrained contextual background. Make the subject immediately "
-        "recognisable at phone-screen size. Use a natural decisive moment, believable "
-        "human scale, realistic perspective and uncluttered composition. "
-        "PHOTOCRAFT: high-end international newspaper photo-desk aesthetic, full-frame "
-        "camera look, natural 35mm or 50mm lens perspective, realistic depth of field, "
-        "soft available daylight or believable venue lighting, accurate skin and material "
-        "texture, balanced highlights, detailed shadows, subtle film grain, restrained "
-        "colour grading and lifelike contrast. Beautiful but credible, crisp subject, "
-        "no plastic skin, no glossy CGI, no 3D render, no fantasy lighting, no artificial "
-        "HDR, no oversaturation, no painterly look, no collage, no split screen. "
-        "FACTUAL SAFETY: never invent a person's identity or face, a score, result, "
-        "uniform, logo, location, crowd, injury, damage, quote or event detail not stated. "
-        "For a result announcement, show a plausible school/exam context and a blank "
-        "generic result sheet; never fabricate marks, names or certificates. For a "
-        "transfer/signing/return, show a grounded club-ground or equipment context, not "
-        "a fake match. For an actual match report, show only the sport and scene supported "
-        "by the facts. Cricket uses cricket equipment only; football uses football "
-        "equipment only; hockey uses hockey equipment only. "
-        "SPECIFIC SCENE DIRECTION: " + direction[:500] + " "
-        "EXACT HEADLINE: " + headline + " "
-        "SOURCE FACTS (do not add facts): " + facts + " "
-        "SHORT NEWS SUMMARY: " + post + " "
-        "VISUAL RESEARCH NOTES (reference only, not proof): " + brief + " "
-        "Landscape 4:3, editorial framing, reserve clean lower 22 percent for the app's "
-        "separate headline overlay."
+        "NEWS SCENE — FOLLOW THIS EXACTLY: " + direction[:650] + " "
+        "STORY HEADLINE: " + headline + " "
+        "ARTICLE FACTS: " + facts[:650] + " "
+        "NEWS SUMMARY: " + post + " "
+        "Create one premium, photorealistic editorial news illustration for a "
+        "Nepali newsroom. The scene must depict the event described above, not "
+        "a generic image from a broad category. If the requested scene is unclear, "
+        "use a simple symbolic scene tied directly to the headline rather than "
+        "inventing people, activities or locations. "
+        "For a diplomatic visit, show only the specific airport/official-arrival "
+        "setting and the two relevant national flags; do not add students, sports, "
+        "writing desks, classrooms or unrelated people. Never invent or imitate "
+        "a real person's face. One coherent scene, realistic documentary-photo "
+        "aesthetic, natural light, accurate proportions, restrained colour, crisp "
+        "main subject, uncluttered background. "
+        "No text, letters, numbers, signs, logos, watermark, collage, split-screen, "
+        "fantasy, CGI, plastic skin, unrelated objects or extra activities. "
+        "This is an AI editorial illustration, not documentary evidence. "
+        "Visual research notes, if any, are secondary and must not override the "
+        "headline or article facts: " + brief
     )
     return prompt[:2048]
 
