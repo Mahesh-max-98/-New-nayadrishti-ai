@@ -282,17 +282,20 @@ def _build_image_prompt(title, description, summary, visual_brief=""):
     direction = clean(_visual_direction(headline, facts, post, brief), 120)
     # Keep the total comfortably below both character- and token-based limits.
     prompt = (
-        "Create a realistic editorial illustration for this exact news story. "
+        "Create ONE continuous realistic editorial scene for this exact news story, like a single photograph. "
         "HEADLINE: " + headline + " "
         "FACTS: " + facts + " "
         "POST: " + post + " "
         "VISUAL PLAN: " + brief + " "
         "GUIDANCE: " + direction + " "
-        "Show one clear main subject, meaningful foreground and story-specific background. "
+        "Use one camera view, one location and one coherent moment. One dominant subject, "
+        "natural foreground and a believable story-specific background. "
         "Use natural lighting, accurate perspective and balanced colours. "
         "Do not invent people, faces, locations, flags, logos, dates, actions or events. "
-        "If uncertain, use a neutral symbolic scene. No text, letters, numbers, signs, "
-        "documents, screens, watermarks, unrelated objects, collage panels or empty centre. "
+        "If uncertain, use one simple neutral symbolic scene. "
+        "ABSOLUTELY NO collage, split-screen, panels, frames, montage, inset pictures, "
+        "screens, tablets, papers, newspapers, ballots, charts, signs, captions, lettering, "
+        "numbers, symbols that resemble writing, logos, watermarks or unrelated props. "
         "Professional photojournalistic editorial illustration; not evidence."
     )
     return prompt[:1200]
