@@ -48,7 +48,7 @@ select,.select{background:#0d1525;color:var(--text);border:1px solid var(--line)
 .suggestions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin:18px 0}.suggestions button{border:1px solid var(--line);background:var(--panel);color:#cbd5e1;border-radius:999px;padding:8px 12px;font-size:12px}
 .viewer{border:1px solid var(--line);border-radius:14px;background:#050913;color:var(--text);max-width:min(96vw,1200px);max-height:94vh;padding:12px}.viewer::backdrop{background:#000d}.viewer img{display:block;max-width:90vw;max-height:80vh;object-fit:contain}.viewer-tools{display:flex;justify-content:space-between;align-items:center;padding-top:8px}
 .empty-history{font-size:12px;color:#718099;padding:10px}
-@media(max-width:850px){.app{grid-template-columns:1fr}.sidebar{display:none}.topbar{padding:13px 15px}.content{padding:15px 12px 20px}.welcome{margin:3vh auto 15px}.composer{padding:10px}.message{gap:8px}.image-card{max-width:100%}.composer-tools select{flex:1;min-width:120px}.generate{margin-left:0;flex:1}}
+@media(max-width:850px){.app{grid-template-columns:1fr}.sidebar{display:flex;flex-direction:row;align-items:center;gap:6px;overflow-x:auto;padding:8px 10px;border-right:0;border-bottom:1px solid var(--line)}.brand,.sidehead,.sidefoot{display:none}.history-list{display:flex;gap:5px;max-height:none;overflow:visible}.history-link{width:auto;max-width:150px;white-space:nowrap}.navbtn{width:auto;white-space:nowrap;flex:0 0 auto}.topbar{padding:13px 15px}.content{padding:15px 12px 20px}.welcome{margin:3vh auto 15px}.composer{padding:10px}.message{gap:8px}.image-card{max-width:100%}.composer-tools select{flex:1;min-width:120px}.generate{margin-left:0;flex:1}}
 @media(prefers-reduced-motion:no-preference){button,.image-card{transition:background .15s ease,border-color .15s ease,transform .15s ease}}
 body.light{--bg:#f2f5fb;--panel:#fff;--panel2:#e9eef7;--line:#d6deea;--text:#172033;--muted:#64748b;background:var(--bg);color:var(--text)}
 body.light .sidebar,body.light .topbar{background:#fff}body.light .composer{background:#fff}body.light .message.user .message-text{background:#e9eaff;border-color:#d3d2f4}body.light .message-text{background:#fff}body.light .image-card{background:#fff}body.light .image-actions button,body.light .image-actions a,body.light .toolbtn{background:#f1f4f9;color:#172033}
@@ -119,7 +119,7 @@ body.light .sidebar,body.light .topbar{background:#fff}body.light .composer{back
 <script>
 const $=id=>document.getElementById(id);
 const chat=$('chat'),promptBox=$('prompt'),statusBox=$('status');
-let conversationId=null,currentImageId=null,enhancedText='',uploaded=[];
+let conversationId=null,currentImageId=null,enhancedText='',originalPromptSnapshot=null,uploaded=[];
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function status(message,error=false){statusBox.textContent=message;statusBox.classList.toggle('error',error);}
 function textNode(tag,text,className){const el=document.createElement(tag);el.textContent=text;if(className)el.className=className;return el;}
@@ -185,12 +185,12 @@ async function enhancePrompt(){
  const original=promptBox.value.trim();if(!original){status('Write a prompt first.',true);return;}
  $('enhance').disabled=true;status('Improving your prompt with Groq…');
  try{const r=await fetch('/api/images/enhance-prompt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:original,style:$('style').value})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Prompt enhancement failed.');
- enhancedText=data.enhanced_prompt;$('enhancedPrompt').value=enhancedText;$('promptExtra').classList.add('show');status('Enhanced prompt ready. Review it, edit it, or keep your original.');}
+ enhancedText=data.enhanced_prompt;originalPromptSnapshot=original;$('enhancedPrompt').value=enhancedText;$('promptExtra').classList.add('show');status('Enhanced prompt ready. Review it, edit it, or keep your original.');}
  catch(e){status(e.message,true);}finally{$('enhance').disabled=false;}
 }
 async function sendPrompt(){
- const original=promptBox.value.trim();const improved=$('enhancedPrompt').value.trim();
- const effective=improved&&improved!==enhancedText?improved:(improved||original);
+ const typedPrompt=promptBox.value.trim();const original=originalPromptSnapshot||typedPrompt;const improved=$('enhancedPrompt').value.trim();
+ const effective=improved||typedPrompt;
  if(!effective){status('Enter a prompt first.',true);return;}
  $('send').disabled=true;$('enhance').disabled=true;$('welcome').style.display='none';
  addTextMessage('user',original);status(currentImageId?'Preparing an edit of the previous image…':'Preparing your image…');
@@ -199,7 +199,7 @@ async function sendPrompt(){
   if(currentImageId){
    r=await fetch('/api/images/edit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_id:currentImageId,instruction:effective,conversation_id:conversationId,aspect_ratio:$('ratio').value,upload_ids:uploaded.map(x=>x.upload_id)})});
   }else{
-   const fd=new FormData();fd.append('prompt',original);fd.append('enhanced_prompt',improved);fd.append('style',$('style').value);fd.append('aspect_ratio',$('ratio').value);if(conversationId)fd.append('conversation_id',conversationId);uploaded.forEach(x=>fd.append('upload_ids',x.upload_id));
+   const fd=new FormData();fd.append('prompt',original);fd.append('enhanced_prompt',effective!==original?effective:'');fd.append('style',$('style').value);fd.append('aspect_ratio',$('ratio').value);if(conversationId)fd.append('conversation_id',conversationId);uploaded.forEach(x=>fd.append('upload_ids',x.upload_id));
    r=await fetch('/api/images/generate',{method:'POST',body:fd});
   }
   const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not start image generation.');
@@ -211,7 +211,7 @@ async function sendPrompt(){
    status(state.message||'Working…');
   }
   if(!finished)throw new Error('This request exceeded the waiting window. Reopen the conversation to check saved history.');
-  promptBox.value='';$('enhancedPrompt').value='';$('promptExtra').classList.remove('show');enhancedText='';uploaded=[];renderUploads();await loadHistory();
+  promptBox.value='';$('enhancedPrompt').value='';$('promptExtra').classList.remove('show');enhancedText='';originalPromptSnapshot=null;uploaded=[];renderUploads();await loadHistory();
  }catch(e){status(e.message,true);}
  finally{$('send').disabled=false;$('enhance').disabled=false;}
 }
@@ -226,7 +226,8 @@ $('send').addEventListener('click',sendPrompt);$('prompt').addEventListener('key
 $('attach').addEventListener('click',()=>$('fileInput').click());$('fileInput').addEventListener('change',e=>uploadFiles([...e.target.files]));
 $('enhance').addEventListener('click',enhancePrompt);
 $('useEnhanced').addEventListener('click',()=>{promptBox.value=$('enhancedPrompt').value;status('Enhanced prompt selected.');});
-$('useOriginal').addEventListener('click',()=>{ $('enhancedPrompt').value='';enhancedText='';status('Original prompt selected.');});
+$('useOriginal').addEventListener('click',()=>{promptBox.value=originalPromptSnapshot||promptBox.value;$('enhancedPrompt').value='';enhancedText='';originalPromptSnapshot=null;status('Original prompt selected.');});
+$('prompt').addEventListener('input',()=>{if(originalPromptSnapshot&&promptBox.value!==enhancedText){originalPromptSnapshot=null;$('enhancedPrompt').value='';enhancedText='';}});
 $('copyEnhanced').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('enhancedPrompt').value);status('Enhanced prompt copied.');}catch(e){status('Clipboard permission was unavailable.',true);}});
 $('newChat').addEventListener('click',()=>{clearChat();promptBox.value='';status('New image conversation ready.');});
 $('showCreations').addEventListener('click',async()=>{await loadHistory();status('Select a saved conversation to reopen its images.');});
