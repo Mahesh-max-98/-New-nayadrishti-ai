@@ -39,24 +39,12 @@ def _compose_news_card(image, title, summary, ai_generated=False):
     image = image.filter(ImageFilter.UnsharpMask(radius=1.35, percent=115, threshold=4))
     image = image.convert("RGBA")
 
-    # Brand palette: midnight navy, clean white, and restrained signal-gold.
-    navy = (7, 18, 36, 238)
+    # Keep the news photograph clean and unobstructed. Only the small brand
+    # mark and wordmark are drawn over the top-left corner.
     white = (255, 255, 255, 255)
     muted = (207, 220, 236, 255)
     gold = (244, 184, 64, 255)
     cyan = (55, 190, 210, 255)
-
-    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    # Soft bottom gradient keeps the story image visible while making headlines readable.
-    for y in range(570, 900):
-        alpha = int(8 + 105 * ((y - 570) / 330))
-        od.line((0, y, 1200, y), fill=(5, 15, 31, alpha))
-    # Slim masthead backdrop gives every post a recognisable brand signature.
-    for y in range(0, 112):
-        alpha = int(85 - 25 * (y / 112))
-        od.line((0, y, 1200, y), fill=(5, 17, 35, alpha))
-    image = Image.alpha_composite(image, overlay)
     draw = ImageDraw.Draw(image)
 
     def load_font(size, bold=False):
@@ -76,14 +64,8 @@ def _compose_news_card(image, title, summary, ai_generated=False):
 
     brand_font = load_font(42, True)
     tagline_font = load_font(19, False)
-    headline_font = load_font(49, True)
-    footer_font = load_font(22, True)
-    badge_font = load_font(19, True)
 
-    # Compact top-left brand plaque keeps the original NayaDrishti identity legible
-    # on both bright and dark photographs without hiding the main news subject.
-    draw.rounded_rectangle((22, 15, 455, 105), radius=20,
-                           fill=(5, 17, 35, 205), outline=(255, 255, 255, 55), width=2)
+    # Transparent top-left brand signature: no black plaque or border.
     cx, cy = 70, 60
     draw.ellipse((cx - 32, cy - 32, cx + 32, cy + 32), outline=cyan, width=4)
     draw.arc((cx - 18, cy - 32, cx + 18, cy + 32), 0, 360, fill=cyan, width=2)
@@ -96,25 +78,8 @@ def _compose_news_card(image, title, summary, ai_generated=False):
     draw.text((119, 26), "NayaDrishti", font=brand_font, fill=white,
               stroke_width=1, stroke_fill=(0, 0, 0, 110))
     draw.text((122, 72), "नयाँ दृष्टि, नयाँ खबर।", font=tagline_font, fill=muted)
-    draw.rounded_rectangle((120, 96, 320, 100), radius=2, fill=gold)
-
-    if ai_generated:
-        label = "AI-GENERATED EDITORIAL ILLUSTRATION"
-        bbox = draw.textbbox((0, 0), label, font=badge_font)
-        label_width = bbox[2] - bbox[0]
-        badge_left = max(560, 1164 - label_width - 30)
-        draw.rounded_rectangle((badge_left, 28, 1164, 75), radius=12,
-                               fill=(7, 18, 36, 225), outline=(244, 184, 64, 210), width=2)
-        draw.text((badge_left + 15, 40), label, font=badge_font, fill=white)
-
-    # Keep the photograph/illustration text-free. The complete news headline
-    # appears once in the Facebook caption above the image; the image supplies
-    # only a story-matched visual.
-    
-    # Footer lockup is consistent across publisher photos and AI illustrations.
-    draw.line((96, 824, 1104, 824), fill=(207, 220, 236, 135), width=1)
-    draw.text((96, 842), "नयाँ दृष्टि, नयाँ खबर।", font=footer_font, fill=gold)
-    draw.text((1104, 847), "NAYADRISHTI", font=badge_font, fill=muted, anchor="ra")
+    # Keep the image itself free of captions, AI badges, footer branding,
+    # black boxes and separator lines. The Facebook post text carries context.
 
     output = io.BytesIO()
     image.convert("RGB").save(output, format="JPEG", quality=93, optimize=True)
