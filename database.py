@@ -48,6 +48,8 @@ def init_db():
         """)
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_data BYTEA")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_status TEXT DEFAULT 'pending'")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_error TEXT")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS image_last_attempt TIMESTAMP")
 
 
 def already_seen(item_id):
@@ -79,23 +81,26 @@ def remember(item_id, title, source, url, status="seen"):
 
 
 def save_draft(item_id, title, source, url, summary, language="auto",
-               image_data=None, image_status="pending"):
+               image_data=None, image_status="pending", image_error=None):
     with connection() as db:
         db.execute("""
             INSERT INTO drafts
-            (item_id, title, source, url, summary, language, image_data, image_status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (item_id, title, source, url, summary, language, image_data, image_status,
+             image_error, image_last_attempt)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT(item_id) DO UPDATE SET
                 image_data=COALESCE(drafts.image_data, EXCLUDED.image_data),
-                image_status=EXCLUDED.image_status
-        """, (item_id, title, source, url, summary, language, image_data, image_status))
+                image_status=EXCLUDED.image_status,
+                image_error=EXCLUDED.image_error,
+                image_last_attempt=CURRENT_TIMESTAMP
+        """, (item_id, title, source, url, summary, language, image_data, image_status, image_error))
 
 
 def get_drafts(limit=50):
     with connection() as db:
         rows = db.execute("""
             SELECT item_id, title, source, url, summary, language, status,
-                   image_status, created_at,
+                   image_status, image_error, created_at,
                    (image_data IS NOT NULL) AS has_image
             FROM drafts
             WHERE status='draft'
@@ -103,6 +108,28 @@ def get_drafts(limit=50):
             LIMIT %s
         """, (limit,)).fetchall()
         return [dict(row) for row in rows]
+
+
+def get_draft_for_image_retry(item_id):
+    """Return a missing-image draft only when its retry cooldown has elapsed."""
+    with connection() as db:
+        row = db.execute("""
+            SELECT item_id, title, source, url, summary, image_status,
+                   image_error, image_last_attempt,
+                   (image_data IS NOT NULL) AS has_image
+            FROM drafts WHERE item_id=%s
+        """, (item_id,)).fetchone()
+        if not row or row["has_image"]:
+            return None
+        last_attempt = row["image_last_attempt"]
+        if last_attempt is not None:
+            elapsed = db.execute(
+                "SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - %s)) AS seconds",
+                (last_attempt,)
+            ).fetchone()["seconds"]
+            if elapsed is not None and elapsed < 1800:
+                return None
+        return dict(row)
 
 
 def get_draft_image(item_id):
