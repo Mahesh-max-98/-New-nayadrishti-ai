@@ -1,5 +1,4 @@
 """Routes and mobile UI for the Roman Nepali funny-photo creator."""
-import base64
 import threading
 import uuid
 from functools import wraps
@@ -8,10 +7,9 @@ from flask import Blueprint, jsonify, render_template_string, request, session, 
 import io
 
 from funny_post_creator import create_funny_post
+from database import connection
 
 funny_bp = Blueprint("funny_posts", __name__)
-_jobs = {}
-_lock = threading.Lock()
 
 def _login_required(fn):
     @wraps(fn)
@@ -80,51 +78,87 @@ def generate():
     if kind not in ("mixed","joke","observation","savage","caption"):
         kind="mixed"
     topic=str(payload.get("topic") or "").strip()[:180]
-    with _lock:
-        if any(j.get("status") in ("queued","running") for j in _jobs.values()):
+    job_id=uuid.uuid4().hex
+    with connection() as db:
+        active=db.execute("""
+            SELECT job_id FROM funny_post_jobs
+            WHERE status IN ('queued','running')
+              AND created_at > CURRENT_TIMESTAMP - INTERVAL '20 minutes'
+            LIMIT 1
+        """).fetchone()
+        if active:
             return jsonify(error="A post is already being created. Please wait for it to finish."),429
-        job_id=uuid.uuid4().hex
-        _jobs[job_id]={"status":"queued","message":"Your request is queued..."}
-        for old_id in list(_jobs)[:-5]:
-            _jobs.pop(old_id,None)
+        db.execute("""
+            INSERT INTO funny_post_jobs (job_id,status,message)
+            VALUES (%s,'queued','Your request is queued...')
+        """,(job_id,))
+
     def work():
-        with _lock:
-            _jobs[job_id]={"status":"running","message":"Writing your Roman Nepali joke..."}
         try:
+            with connection() as db:
+                db.execute("""
+                    UPDATE funny_post_jobs SET status='running',
+                    message='Writing your Roman Nepali joke...',updated_at=CURRENT_TIMESTAMP
+                    WHERE job_id=%s
+                """,(job_id,))
             quote,image_bytes,image_error=create_funny_post(topic,kind)
-            with _lock:
-                _jobs[job_id]={"status":"done","message":"Joke created.","quote":quote,
-                               "image_error":image_error,"has_image":bool(image_bytes),
-                               "image":base64.b64encode(image_bytes).decode("ascii") if image_bytes else None}
+            with connection() as db:
+                db.execute("""
+                    UPDATE funny_post_jobs SET status='done',message='Joke created.',
+                    quote=%s,image_error=%s,image_data=%s,updated_at=CURRENT_TIMESTAMP
+                    WHERE job_id=%s
+                """,(quote,image_error,image_bytes,job_id))
         except Exception as exc:
-            with _lock:
-                _jobs[job_id]={"status":"error","error":type(exc).__name__+": "+str(exc)[:240]}
+            with connection() as db:
+                db.execute("""
+                    UPDATE funny_post_jobs SET status='error',
+                    error=%s,updated_at=CURRENT_TIMESTAMP WHERE job_id=%s
+                """,(type(exc).__name__+": "+str(exc)[:240],job_id))
+
     threading.Thread(target=work,daemon=True).start()
     return jsonify(job_id=job_id,status="queued"),202
+
 
 @funny_bp.get("/funny-studio/status/<job_id>")
 @_login_required
 def status(job_id):
-    with _lock:
-        job=_jobs.get(job_id)
-        if not job:return jsonify(error="This post job is no longer available."),404
-        return jsonify({key:value for key,value in job.items() if key!="image"})
+    with connection() as db:
+        job=db.execute("""
+            SELECT status,message,quote,image_error,error,
+                   (image_data IS NOT NULL) AS has_image,
+                   (created_at < CURRENT_TIMESTAMP - INTERVAL '20 minutes') AS expired
+            FROM funny_post_jobs WHERE job_id=%s
+        """,(job_id,)).fetchone()
+        if not job:
+            return jsonify(error="This post job is no longer available. Please create a new post."),404
+        if job["status"] in ("queued","running") and job["expired"]:
+            db.execute("""
+                UPDATE funny_post_jobs SET status='error',
+                error='The generation took too long or the server restarted. Please try again.',
+                updated_at=CURRENT_TIMESTAMP WHERE job_id=%s
+            """,(job_id,))
+            job=dict(job)
+            job["status"]="error"
+            job["error"]="The generation took too long or the server restarted. Please try again."
+        return jsonify({key:value for key,value in dict(job).items() if key!="expired"})
+
 
 @funny_bp.get("/funny-studio/image/<job_id>")
 @_login_required
 def image(job_id):
-    with _lock:
-        job=_jobs.get(job_id)
-        encoded=job.get("image") if job and job.get("status")=="done" else None
-    if not encoded:return "Image not ready.",404
-    return send_file(io.BytesIO(base64.b64decode(encoded)),mimetype="image/jpeg",as_attachment=False,max_age=0)
+    with connection() as db:
+        row=db.execute("SELECT image_data FROM funny_post_jobs WHERE job_id=%s AND status='done'",(job_id,)).fetchone()
+    image_bytes=bytes(row["image_data"]) if row and row["image_data"] else None
+    if not image_bytes:return "Image not ready.",404
+    return send_file(io.BytesIO(image_bytes),mimetype="image/jpeg",as_attachment=False,max_age=0)
+
 
 @funny_bp.get("/funny-studio/download/<job_id>")
 @_login_required
 def download(job_id):
-    with _lock:
-        job=_jobs.get(job_id)
-        encoded=job.get("image") if job and job.get("status")=="done" else None
-    if not encoded:return "Image not ready.",404
-    return send_file(io.BytesIO(base64.b64decode(encoded)),mimetype="image/jpeg",as_attachment=True,
+    with connection() as db:
+        row=db.execute("SELECT image_data FROM funny_post_jobs WHERE job_id=%s AND status='done'",(job_id,)).fetchone()
+    image_bytes=bytes(row["image_data"]) if row and row["image_data"] else None
+    if not image_bytes:return "Image not ready.",404
+    return send_file(io.BytesIO(image_bytes),mimetype="image/jpeg",as_attachment=True,
                      download_name="roman-nepali-funny-post.jpg",max_age=0)
