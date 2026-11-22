@@ -12,6 +12,7 @@ def edit_image(
     width=1024,
     height=768,
     additional_references=None,
+    conversation_context="",
 ):
     instruction = str(instruction or "").strip()
     if not instruction:
@@ -26,7 +27,10 @@ def edit_image(
         "Change only what the user explicitly asks to change. Do not replace the scene or "
         "create a new unrelated image. If the user asks to preserve an object or feature, "
         "keep it visually consistent with the source. Maintain natural lighting, realistic "
-        "textures and coherent edges. User editing instruction: " + instruction
+        "textures and coherent edges. Earlier conversation context is provided only to "
+        "understand continuity; do not reapply old edits unless the latest instruction asks. "
+        "Earlier context: " + str(conversation_context or "")[:2500] + ". "
+        "Latest user editing instruction: " + instruction
     )
     references = [source_image_bytes]
     references.extend(list(additional_references or [])[:3])
