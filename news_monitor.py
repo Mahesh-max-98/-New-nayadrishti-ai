@@ -12,7 +12,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, get_draft_for_image_retry, remember, save_draft, set_draft_status
+from database import already_seen, already_seen_title, get_draft_for_image_retry, get_drafts_needing_image_retry, remember, save_draft, set_draft_status
 from facebook_publisher import publish_image
 from image_generator import create_publisher_news_card, create_fallback_news_graphic, generate_news_image
 from google_research import research_story
@@ -514,6 +514,64 @@ def check_feeds():
             result["errors"].append(f"{source_name}: {type(exc).__name__}: {str(exc)[:220]}")
         finally:
             result["feed_details"].append(feed_info)
+
+
+    # Retry image generation from the database queue on every feed check.
+    # This also works when a publisher has removed an older story from its RSS feed.
+    try:
+        retry_candidates = get_drafts_needing_image_retry(
+            limit=int(os.getenv("IMAGE_RETRY_BATCH_SIZE", "2"))
+        )
+        for retry_draft in retry_candidates:
+            item_id = retry_draft["item_id"]
+            title = retry_draft["title"]
+            source_name = retry_draft.get("source") or "News source"
+            link = retry_draft.get("url") or ""
+            try:
+                article_text = fetch_article_text(link, title + " " + retry_draft["summary"])
+                image_data = generate_news_image(
+                    title, article_text, retry_draft["summary"]
+                )
+                save_draft(
+                    item_id, title, source_name, link, retry_draft["summary"],
+                    image_data=image_data, image_status="ai_illustration",
+                    image_error=None,
+                )
+                result.setdefault("images_retried", 0)
+                result["images_retried"] += 1
+                log.info("Background image retry succeeded for draft: %s", title)
+            except Exception as image_exc:
+                log.warning(
+                    "Background image retry failed for %s: %s",
+                    title, image_exc,
+                )
+                try:
+                    fallback_image = create_fallback_news_graphic(
+                        title, retry_draft["summary"]
+                    )
+                    save_draft(
+                        item_id, title, source_name, link, retry_draft["summary"],
+                        image_data=fallback_image,
+                        image_status="fallback_graphic",
+                        image_error=f"{type(image_exc).__name__}: {str(image_exc)[:300]}",
+                    )
+                    result["fallback_graphics_used"] += 1
+                except Exception as fallback_exc:
+                    save_draft(
+                        item_id, title, source_name, link, retry_draft["summary"],
+                        image_data=None, image_status="failed",
+                        image_error=f"{type(fallback_exc).__name__}: {str(fallback_exc)[:300]}",
+                    )
+                    result.setdefault("image_retry_errors", []).append(
+                        f"{source_name}: {type(fallback_exc).__name__}: {str(fallback_exc)[:160]}"
+                    )
+    except Exception as retry_queue_exc:
+        log.exception("Background image retry queue failed")
+        result.setdefault("errors", []).append(
+            "Image retry queue: "
+            + f"{type(retry_queue_exc).__name__}: {str(retry_queue_exc)[:180]}"
+        )
+
 
     result["facebook_publishing_enabled"] = (
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
