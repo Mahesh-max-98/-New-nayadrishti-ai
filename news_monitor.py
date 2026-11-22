@@ -45,13 +45,18 @@ def configured_feeds():
         name, url = name.strip(), url.strip()
         if name and url.startswith(("https://", "http://")):
             feeds.append((name, url))
-    # Add Google News RSS discovery alongside the configured publishers.
+    # NEB Result & News is a high-relevance education/results publisher. Its WordPress RSS feed is the machine-readable source; Facebook posts are treated as discovery leads, not scraped or copied.\n    feeds.append(("NEB Result & News", "https://nebnews.net/feed/"))\n    # Add Google News RSS discovery alongside the configured publishers.
     # Results are discovery leads, not independent verification.
     google_queries = [
         ("Google News - Nepal", "Nepal news when:1d", "en", "NP", "NP:en"),
         ("Google News - Nepal Nepali", "नेपाल समाचार when:1d", "ne", "NP", "NP:ne"),
+        ("Google News - NEB Result & News", '"NEB Result & News" OR NEB result Nepal when:1d', "en", "NP", "NP:en"),
+        ("Google News - NEB Nepali", 'NEB नतिजा OR कक्षा १२ नतिजा OR SEE result when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d', "en", "NP", "NP:en"),
+        ("Google News - BBC News Nepali", 'site:bbc.com/nepali OR "BBC News नेपाली" Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - eKantipur", 'site:ekantipur.com Nepal when:1d', "ne", "NP", "NP:ne"),
+        ("Google News - Onlinekhabar", 'site:onlinekhabar.com Nepal when:1d', "ne", "NP", "NP:ne"),
         ("Google News - Nepal Cricket", "Nepal cricket OR Nepali cricket when:1d", "en", "NP", "NP:en"),
-        ("Google News - NEB Education", "NEB Nepal exam result education when:1d", "en", "NP", "NP:en"),
         ("Google News - World", "world breaking news when:1d", "en", "US", "US:en"),
         ("Google News - Football", "football soccer latest when:1d", "en", "GB", "GB:en"),
     ]
@@ -216,7 +221,7 @@ def check_feeds():
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
         "publisher_photos_used": 0, "ai_illustrations_used": 0, "fallback_graphics_used": 0,
-        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 6,
+        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 11,
         "visual_references_checked": 0, "feed_details": [],
     }
     if not feeds:
@@ -419,7 +424,7 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        "Six Google News RSS discovery feeds (Nepal English, Nepal Nepali, Nepal cricket, NEB/education, world, and football) run alongside configured publishers. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
+        "Eleven Google News RSS discovery feeds (Nepal English/Nepali, NEB Result & News, RONB, BBC Nepali, eKantipur, Onlinekhabar, cricket, world and football) run alongside configured publishers, plus the NEB Result & News publisher RSS feed. Facebook page references are discovery leads only; stories are rewritten from original reporting and corroborated where possible. Only stories published within the last 24 hours with a valid feed timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
         "through Wikimedia Commons by default and checked with Groq vision; existing "
         "Google Custom Search credentials can optionally enable Google Images. Reference "
         "images are never republished. Publisher photos are used only when their article "
