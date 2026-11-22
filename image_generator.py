@@ -416,9 +416,8 @@ def create_fallback_news_graphic(title, summary=""):
     headline = re.sub(r"\s+", " ", (title or "Latest News").strip())[:180]
     low = (headline + " " + (summary or "")).lower()
 
-    # Distinct, restrained palettes by beat: colourful without turning every post blue.
-    # Brighter, multi-colour editorial palettes. Each beat gets a distinct
-    # primary + secondary + paper combination while keeping headline contrast high.
+    # Distinct, vivid multi-colour palettes by beat. Avoid a yellow-only look:
+    # each graphic combines a topic base, dark ink, two strong accents and paper.
     themes = {
         "education": ((230, 239, 255), (28, 43, 72), (239, 105, 54), (55, 164, 145), (255, 252, 244)),
         "cricket": ((224, 245, 232), (24, 55, 43), (226, 75, 65), (244, 183, 54), (255, 252, 239)),
@@ -507,6 +506,27 @@ def create_fallback_news_graphic(title, summary=""):
     d.ellipse((345, 231, 369, 255), fill=accent)
     d.ellipse((378, 231, 402, 255), fill=secondary)
     d.ellipse((411, 231, 435, 255), fill=ink)
+
+    # Fill the central-left area with a lively editorial composition instead of
+    # leaving a large empty patch. These shapes are decorative context, not fake data.
+    d.rounded_rectangle((92, 292, 610, 574), radius=28, fill=bg, outline=secondary, width=3)
+    d.polygon([(92, 292), (310, 292), (185, 574), (92, 574)], fill=accent)
+    d.polygon([(310, 292), (465, 292), (340, 574), (185, 574)], fill=secondary)
+    d.polygon([(465, 292), (610, 292), (485, 574), (340, 574)], fill=ink)
+    # Layered paper panels and coloured signal marks add depth and visual interest.
+    d.rounded_rectangle((150, 330, 548, 535), radius=22, fill=paper, outline=accent, width=4)
+    d.rounded_rectangle((174, 354, 524, 510), radius=16, fill=bg)
+    d.ellipse((205, 385, 315, 495), fill=accent, outline=paper, width=5)
+    d.ellipse((236, 416, 284, 464), fill=secondary, outline=ink, width=3)
+    d.rounded_rectangle((340, 382, 490, 402), radius=8, fill=ink)
+    d.rounded_rectangle((340, 418, 465, 432), radius=7, fill=accent)
+    d.rounded_rectangle((340, 448, 505, 462), radius=7, fill=secondary)
+    d.rounded_rectangle((340, 478, 430, 490), radius=6, fill=ink)
+    # Extra colour markers keep the centre lively across every topic palette.
+    d.ellipse((112, 270, 150, 308), fill=secondary, outline=paper, width=3)
+    d.ellipse((560, 540, 602, 582), fill=accent, outline=paper, width=3)
+    d.line((120, 560, 245, 560), fill=ink, width=5)
+    d.line((265, 560, 330, 560), fill=secondary, width=5)
 
     # Large topic emblem, drawn as a clean editorial symbol rather than fake reportage.
     cx, cy = 875, 430
