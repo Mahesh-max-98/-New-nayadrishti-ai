@@ -1,9 +1,11 @@
 import os
+import base64
 import threading
+import uuid
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for, Response
+from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for, Response
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import init_db, get_drafts, get_draft_image, replace_draft_image
@@ -349,6 +351,92 @@ def run_check():
     thread = threading.Thread(target=_run_feed_check_in_background, daemon=True)
     thread.start()
     return jsonify(running=True, message="Feed check started in the background."), 202
+
+
+# Separate, admin-only image studio. Jobs are kept in memory for this process.
+_image_studio_lock = threading.Lock()
+_image_studio_jobs = {}
+
+
+def _run_image_studio_job(job_id, title, article, summary):
+    with _image_studio_lock:
+        _image_studio_jobs[job_id] = {"status": "running", "message": "Researching the story before image generation..."}
+    try:
+        research_context = ""
+        try:
+            research = research_story(title, article)
+            if isinstance(research, dict):
+                research_context = str(research.get("news_context") or "")[:1800]
+        except Exception as research_error:
+            app.logger.warning("Image Studio optional research failed: %s", research_error)
+        visual_brief = (
+            "User-provided article text is the primary evidence. Do not add facts not present in it. "
+            + ("Independent research leads for context only (not proof): " + research_context if research_context else "")
+        )
+        with _image_studio_lock:
+            _image_studio_jobs[job_id] = {"status": "running", "message": "Story research complete. Waiting for a free image-generation worker..."}
+        image_bytes = generate_news_image(
+            title, article, summary, visual_brief=visual_brief[:2200]
+        )
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        with _image_studio_lock:
+            _image_studio_jobs[job_id] = {
+                "status": "done",
+                "message": "Image generated. Review it against the original story.",
+                "image": encoded,
+            }
+    except Exception as exc:
+        app.logger.exception("NayaDrishti Image Studio job failed: %s", job_id)
+        with _image_studio_lock:
+            _image_studio_jobs[job_id] = {
+                "status": "error",
+                "error": f"{type(exc).__name__}: {str(exc)[:260]}",
+            }
+
+
+@app.get("/image-studio")
+@login_required
+def image_studio():
+    return render_template("image_studio.html")
+
+
+@app.post("/image-studio/generate")
+@login_required
+def image_studio_generate():
+    payload = request.get_json(silent=True) or {}
+    title = str(payload.get("title") or "").strip()[:300]
+    article = str(payload.get("article") or "").strip()[:8000]
+    summary = str(payload.get("summary") or "").strip()[:800]
+    if len(title) < 8:
+        return jsonify(error="Please enter a clear news headline."), 400
+    if len(article) < 100:
+        return jsonify(error="Please provide at least 100 characters of article facts so the image can match the story."), 400
+    with _image_studio_lock:
+        active = sum(1 for job in _image_studio_jobs.values() if job.get("status") == "running")
+        if active:
+            return jsonify(error="An image is already being generated. Please wait for it to finish."), 429
+        job_id = uuid.uuid4().hex
+        _image_studio_jobs[job_id] = {"status": "queued", "message": "Image request queued..."}
+        # Keep only the newest few jobs to limit memory use.
+        for old_id in list(_image_studio_jobs)[:-5]:
+            _image_studio_jobs.pop(old_id, None)
+    thread = threading.Thread(
+        target=_run_image_studio_job,
+        args=(job_id, title, article, summary),
+        daemon=True,
+    )
+    thread.start()
+    return jsonify(job_id=job_id, status="queued"), 202
+
+
+@app.get("/image-studio/status/<job_id>")
+@login_required
+def image_studio_status(job_id):
+    with _image_studio_lock:
+        job = _image_studio_jobs.get(job_id)
+        if not job:
+            return jsonify(error="This image job is no longer available. Start a new request."), 404
+        return jsonify(job)
 
 
 if __name__ == "__main__":
