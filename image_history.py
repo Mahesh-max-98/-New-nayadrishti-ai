@@ -257,12 +257,13 @@ def get_conversation(conversation_id, user_id):
 
 
 def delete_image(image_id, user_id):
+    """Permanently delete one image version owned by this account."""
     with connection() as db:
         row = db.execute(
-            """UPDATE image_versions v SET deleted_at=CURRENT_TIMESTAMP
-               FROM image_conversations c
+            """DELETE FROM image_versions v
+               USING image_conversations c
                WHERE v.conversation_id=c.conversation_id AND v.image_id=%s
-                 AND c.user_id=%s AND c.deleted_at IS NULL AND v.deleted_at IS NULL
+                 AND c.user_id=%s AND c.deleted_at IS NULL
                RETURNING v.image_id""",
             (str(image_id), str(user_id)),
         ).fetchone()
@@ -270,15 +271,20 @@ def delete_image(image_id, user_id):
 
 
 def delete_conversation(conversation_id, user_id):
+    """Permanently delete a conversation, its messages and all its image bytes."""
     with connection() as db:
         row = db.execute(
-            """UPDATE image_conversations SET deleted_at=CURRENT_TIMESTAMP,
-                      updated_at=CURRENT_TIMESTAMP
-               WHERE conversation_id=%s AND user_id=%s AND deleted_at IS NULL
-               RETURNING conversation_id""",
+            """SELECT conversation_id FROM image_conversations
+               WHERE conversation_id=%s AND user_id=%s AND deleted_at IS NULL""",
             (str(conversation_id), str(user_id)),
         ).fetchone()
-        return bool(row)
+        if not row:
+            return False
+        db.execute("DELETE FROM image_messages WHERE conversation_id=%s", (str(conversation_id),))
+        db.execute("DELETE FROM image_versions WHERE conversation_id=%s", (str(conversation_id),))
+        db.execute("DELETE FROM image_conversations WHERE conversation_id=%s AND user_id=%s",
+                   (str(conversation_id), str(user_id)))
+        return True
 
 
 def save_upload(user_id, filename, mime_type, image_bytes):
@@ -332,8 +338,8 @@ def get_upload(upload_id, user_id):
 def delete_upload(upload_id, user_id):
     with connection() as db:
         row = db.execute(
-            """UPDATE image_uploads SET deleted_at=CURRENT_TIMESTAMP
-               WHERE upload_id=%s AND user_id=%s AND deleted_at IS NULL
+            """DELETE FROM image_uploads
+               WHERE upload_id=%s AND user_id=%s
                RETURNING upload_id""",
             (str(upload_id), str(user_id)),
         ).fetchone()
