@@ -124,6 +124,24 @@ def _visual_direction(title, description, summary, visual_brief=""):
     headline = re.sub(r"[\u2010-\u2015\u2212]", "-", headline)
     details = re.sub(r"[\u2010-\u2015\u2212]", "-", details)
 
+    # Diplomatic/state-visit stories must never fall through to generic category imagery.
+    if any(term in headline for term in (
+        "balen shah", "prime minister balen", "प्रधानमन्त्री बालेन",
+        "प्रधान मन्त्री बालेन", "state visit", "राज्य भ्रमण",
+        "new delhi", "नयाँ दिल्ली",
+    )):
+        return (
+            "OFFICIAL NEPAL-INDIA STATE VISIT NEWS: create a photorealistic, "
+            "respectful editorial scene at a formal diplomatic arrival in New Delhi, India. "
+            "Show a Nepal government delegation arriving at a modern Indian airport or "
+            "official government venue, with subtle Nepal and India national flags visible. "
+            "If depicting a person, show only a generic non-identifiable official from behind "
+            "or at a distance; do NOT invent or imitate Prime Minister Balen Shah's face. "
+            "No cricket ground, sports equipment, student, young man writing, classroom, "
+            "unrelated portrait, fabricated handshake or meeting, readable signs, text or logos. "
+            "The image must unmistakably communicate an official Nepal-India diplomatic visit."
+        )
+
     # Detect the kind of event, not only the sport/category. This prevents
     # transfer, signing, return and appointment stories from becoming fake match scenes.
     if any(term in headline for term in ("cricket", "imam-ul-haq", "imam ul haq", "pakistan opener", "pakistani opener", "yorkshire", "county cricket")):
