@@ -39,12 +39,15 @@ def _prepare_reference(image_bytes, index):
         raise ImageProviderError(f"Reference image {index + 1} exceeds the 10 MB limit.")
 
     try:
-        with Image.open(io.BytesIO(image_bytes)) as source:
-            source = ImageOps.exif_transpose(source)
-            if source.format not in ("JPEG", "PNG", "WEBP"):
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            original_format = opened.format
+            if original_format not in ("JPEG", "PNG", "WEBP"):
                 raise ImageProviderError("Only JPG, PNG and WebP reference images are supported.")
-            if source.width < 32 or source.height < 32:
+            if opened.width < 32 or opened.height < 32:
                 raise ImageProviderError("Reference images must be at least 32 × 32 pixels.")
+            if opened.width * opened.height > 40000000:
+                raise ImageProviderError("Reference image dimensions are too large (maximum 40 megapixels).")
+            source = ImageOps.exif_transpose(opened)
             source.thumbnail((REFERENCE_MAX_EDGE, REFERENCE_MAX_EDGE), Image.Resampling.LANCZOS)
             output = io.BytesIO()
             source.convert("RGB").save(output, format="JPEG", quality=90, optimize=True)
