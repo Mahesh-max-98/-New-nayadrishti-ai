@@ -84,7 +84,7 @@ if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
     scheduler.add_job(
         _scheduled_feed_check,
         trigger="interval",
-        seconds=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "60"))),
+        seconds=max(180, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "180"))),
         id="nayadrishti_news_monitor",
         replace_existing=True,
         max_instances=1,
@@ -177,7 +177,7 @@ def home():
         PAGE, logged_in=logged_in, drafts=get_drafts() if logged_in else [],
         feed_count=len(configured_feeds()),
         monitoring_enabled=os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true",
-        check_interval=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "60"))),
+        check_interval=max(180, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "180"))),
         publishing=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true",
         error=request.args.get("error"),
     )
