@@ -328,7 +328,7 @@ def generate_news_image(title, description="", summary="", visual_brief=""):
         response = requests.get(
             image_url,
             params={
-                "model": "tongyi-mai/z-image-turbo",
+                "model": os.getenv("POLLINATIONS_IMAGE_MODEL", "black-forest-labs/flux.1-schnell").strip(),
                 "width": 1200,
                 "height": 900,
             },
