@@ -235,16 +235,31 @@ def check_feeds():
                             result["images_retried"] += 1
                             log.info("Recovered missing image for previously saved story: %s", title)
                         except Exception as retry_exc:
-                            save_draft(
-                                item_id, title, source_name, link,
-                                retry_draft["summary"], image_data=None,
-                                image_status="failed",
-                                image_error=f"{type(retry_exc).__name__}: {str(retry_exc)[:350]}",
-                            )
-                            result.setdefault("image_retry_errors", [])
-                            result["image_retry_errors"].append(
-                                f"{source_name}: {type(retry_exc).__name__}: {str(retry_exc)[:180]}"
-                            )
+                            log.warning("Image retry provider unavailable for %s: %s", title, retry_exc)
+                            try:
+                                fallback_image = create_fallback_news_graphic(
+                                    title, retry_draft["summary"]
+                                )
+                                save_draft(
+                                    item_id, title, source_name, link,
+                                    retry_draft["summary"], image_data=fallback_image,
+                                    image_status="fallback_graphic",
+                                    image_error=f"{type(retry_exc).__name__}: {str(retry_exc)[:300]}",
+                                )
+                                result.setdefault("fallback_graphics_used", 0)
+                                result["fallback_graphics_used"] += 1
+                                log.info("Recovered missing image with a labelled fallback graphic: %s", title)
+                            except Exception as fallback_exc:
+                                save_draft(
+                                    item_id, title, source_name, link,
+                                    retry_draft["summary"], image_data=None,
+                                    image_status="failed",
+                                    image_error=f"{type(fallback_exc).__name__}: {str(fallback_exc)[:350]}",
+                                )
+                                result.setdefault("image_retry_errors", [])
+                                result["image_retry_errors"].append(
+                                    f"{source_name}: {type(fallback_exc).__name__}: {str(fallback_exc)[:180]}"
+                                )
                     continue
 
                 summary = write_summary(title=title, description=description,
