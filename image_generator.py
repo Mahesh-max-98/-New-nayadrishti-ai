@@ -679,13 +679,14 @@ def generate_news_image(title, description="", summary="", visual_brief="", _qa_
     matched, review_note = _check_visual_match(raw, title, description, visual_plan)
     if not matched and str(review_note).startswith("QA_UNAVAILABLE:"):
         # Image Studio is a signed-in human-review preview, not an auto-publishing path.
-        # Show the actual generated artwork when automated review is unavailable,
-        # but log that it remains unverified. Facebook auto-publishing stays separate.
+        # Allow the actual image to appear for manual inspection when QA providers
+        # are unavailable. The UI labels it unverified; publishing remains disabled.
         import logging
         logging.getLogger("nayadrishti.images").warning(
             "Showing generated image as UNVERIFIED PREVIEW; automated QA unavailable: %s",
             str(review_note)[:260],
         )
+        matched = True
     if not matched:
         if _qa_retry < 1:
             correction = (
