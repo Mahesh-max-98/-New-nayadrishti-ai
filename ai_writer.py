@@ -6,30 +6,30 @@ import requests
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 _SOURCE_CREDIT_RE = re.compile(
-    r"^(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\\b", re.IGNORECASE
+    r"^(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\b", re.IGNORECASE
 )
 _INLINE_CREDIT_RE = re.compile(
-    r"\\s*(?:[-|—–]\\s*)?(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\\s*[:：–—-].*$",
+    r"\s*(?:[-|—–]\s*)?(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\s*[:：–—-].*$",
     re.IGNORECASE,
 )
 _TIME_RE = re.compile(
-    r"(?:\\b\\d{1,2}:\\d{2}\\s?(?:AM|PM)?\\b|प्रकाशित समय|प्रकाशन समय)",
+    r"(?:\b\d{1,2}:\d{2}\s?(?:AM|PM)?\b|प्रकाशित समय|प्रकाशन समय)",
     re.IGNORECASE,
 )
-_URL_RE = re.compile(r"https?://\\S+|www\\.\\S+", re.IGNORECASE)
-_HASHTAG_RE = re.compile(r"(?<!\\w)#[\\w\\u0900-\\u097F]+", re.UNICODE)
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_HASHTAG_RE = re.compile(r"(?<!\w)#[\w\u0900-\u097F]+", re.UNICODE)
 
 
 def prepare_news_post(content, source_name=""):
     """Clean and validate model output before it can become a saved news draft."""
-    content = str(content or "").replace("\\\\r\\\\n", "\\n").replace(
-        "\\\\n", "\\n"
-    ).replace("\\\\r", "\\n")
+    content = str(content or "").replace("\\r\\n", "\n").replace(
+        "\\n", "\n"
+    ).replace("\\r", "\n")
     lines = []
     publisher_name = (source_name or "").strip()
 
     for raw_line in content.splitlines():
-        line = re.sub(r"^[-•*\\s]+", "", raw_line).strip()
+        line = re.sub(r"^[-•*\s]+", "", raw_line).strip()
         line = line.strip("*_").strip()
         if not line or _TIME_RE.search(line) or _SOURCE_CREDIT_RE.match(line):
             continue
@@ -37,7 +37,7 @@ def prepare_news_post(content, source_name=""):
         line = _INLINE_CREDIT_RE.sub("", line).strip()
         line = _URL_RE.sub("", line).strip()
         line = _HASHTAG_RE.sub("", line).strip()
-        line = re.sub(r"\\s{2,}", " ", line).strip(" -|—–")
+        line = re.sub(r"\s{2,}", " ", line).strip(" -|—–")
         if not line:
             continue
 
@@ -49,9 +49,9 @@ def prepare_news_post(content, source_name=""):
     if not 3 <= len(lines) <= 6:
         raise RuntimeError("Generated news post must contain 3 to 6 useful lines.")
 
-    text = "\\n".join(lines)
-    devanagari_chars = len(re.findall(r"[\\u0900-\\u097F]", text))
-    letter_chars = len(re.findall(r"[A-Za-z\\u0900-\\u097F]", text))
+    text = "\n".join(lines)
+    devanagari_chars = len(re.findall(r"[\u0900-\u097F]", text))
+    letter_chars = len(re.findall(r"[A-Za-z\u0900-\u097F]", text))
     if devanagari_chars < 20 or not letter_chars or devanagari_chars / letter_chars < 0.35:
         raise RuntimeError("Generated news post is not sufficiently written in Nepali script.")
 
@@ -61,7 +61,7 @@ def prepare_news_post(content, source_name=""):
         raise RuntimeError("Generated news post contains a prohibited source credit or timestamp.")
 
     lines[-1] = lines[-1].rstrip(" ।.!?") + " 📰"
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def write_summary(title, description, source_name, article_url):
@@ -71,7 +71,7 @@ def write_summary(title, description, source_name, article_url):
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
-    article_text = re.sub(r"\\s+", " ", description or "").strip()[:7000]
+    article_text = re.sub(r"\s+", " ", description or "").strip()[:7000]
     if len(article_text) < 80:
         raise ValueError(
             "The source article does not contain enough readable information for a reliable news post."
@@ -133,7 +133,7 @@ def write_summary(title, description, source_name, article_url):
         timeout=45,
     )
     if not response.ok:
-        detail = response.text[:450].replace("\\n", " ").replace("\\r", " ")
+        detail = response.text[:450].replace("\n", " ").replace("\r", " ")
         raise RuntimeError(f"Groq API error {response.status_code}: {detail}")
 
     choices = response.json().get("choices") or []
@@ -142,7 +142,7 @@ def write_summary(title, description, source_name, article_url):
     message = choices[0].get("message") or {}
     generated = message.get("content") or ""
     if isinstance(generated, list):
-        generated = "\\n".join(
+        generated = "\n".join(
             block.get("text", "") for block in generated
             if isinstance(block, dict) and block.get("type") == "text"
         )
