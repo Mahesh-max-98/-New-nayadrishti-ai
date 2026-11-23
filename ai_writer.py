@@ -26,7 +26,7 @@ def _bounded_article_text(description):
 
 
 def _post_to_groq(headers, payload, timeout=45):
-    """Serialize Groq calls and retry only temporary provider/rate-limit failures."""
+    """Serialize Groq calls and retry temporary server failures only."""
     global _LAST_GROQ_REQUEST_AT
     transient_statuses = {500, 502, 503, 504}
     response = None
@@ -235,7 +235,7 @@ def write_summary(title, description, source_name, article_url):
         message = choices[0].get("message") or {}
         generated = message.get("content") or ""
         if isinstance(generated, list):
-            generated = "\\n".join(
+            generated = "\n".join(
                 block.get("text", "") for block in generated
                 if isinstance(block, dict) and block.get("type") == "text"
             )
