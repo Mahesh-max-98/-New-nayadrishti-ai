@@ -83,3 +83,13 @@ The dashboard scheduler runs only while the Render web service is awake. Free we
 
     pip install -r requirements.txt
     python app.py
+
+
+## Cross-source coverage review
+
+Each saved draft receives a coverage label based on similar recent headlines collected from different publisher names:
+- **Matching coverage** means similar headlines appeared from multiple publishers. It is a lead for human review, not proof that the underlying claims are true.
+- **Single source** means no sufficiently similar headline from another collected publisher was found.
+- **Needs comparison** flags similar headlines that contain different numeric details; compare the original articles manually.
+
+The comparison uses collected headline text only. It does not independently verify facts, inspect every publisher article, resolve contradictions, or guarantee that two publishers are editorially independent. Always open the original links before approving a draft. Facebook publishing remains OFF by default.
