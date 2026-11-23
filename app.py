@@ -70,6 +70,8 @@ def _run_check(trigger, lock_acquired=False):
                 "running": False, "finished": True, "result": result, "error": None,
                 "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
                 "trigger": trigger,
+                "new_drafts": int(_check_status.get("new_drafts", 0)),
+                "last_draft": _check_status.get("last_draft"),
             }
     except Exception as exc:
         app.logger.exception("News feed check failed")
@@ -79,6 +81,8 @@ def _run_check(trigger, lock_acquired=False):
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
                 "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
                 "trigger": trigger,
+                "new_drafts": int(_check_status.get("new_drafts", 0)),
+                "last_draft": _check_status.get("last_draft"),
             }
     finally:
         _feed_execution_lock.release()
