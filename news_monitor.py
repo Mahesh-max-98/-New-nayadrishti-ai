@@ -18,11 +18,23 @@ from facebook_publisher import publish_text
 log = logging.getLogger("nayadrishti")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
+DIRECT_NEWS_FEEDS = [
+    # Public RSS endpoints listed for these publishers. Google News discovery
+    # remains enabled as a fallback and for broader topic coverage.
+    ("Onlinekhabar", "https://www.onlinekhabar.com/feed"),
+    ("Setopati", "https://www.setopati.com/feed"),
+    ("Ratopati", "https://www.ratopati.com/feed"),
+]
+
 GOOGLE_NEWS_QUERIES = [
     ("Google News - Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d'),
     ("Google News - Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d'),
-    ("Google News - BBC Nepali", 'site:bbc.com/nepali OR site:bbc.com/news "Nepal" when:1d'),
+    ("Google News - BBC Nepali", 'site:bbc.com/nepali when:1d'),
     ("Google News - Onlinekhabar", 'site:onlinekhabar.com when:1d'),
+    ("Google News - Setopati", 'site:setopati.com when:1d'),
+    ("Google News - Ratopati", 'site:ratopati.com when:1d'),
+    ("Google News - Thaha Khabar", 'site:thahakhabar.com when:1d'),
+    ("Google News - Nepal Samaya", 'site:nepalsamaya.com when:1d'),
     ("Google News - OK Khabar", 'site:okkhabar.com when:1d'),
     ("Google News - Laligurash Media Network", 'site:laligurash.com when:1d'),
     ("Google News - NEB", 'site:neb.gov.np OR "National Examinations Board Nepal" when:1d'),
@@ -31,11 +43,12 @@ GOOGLE_NEWS_QUERIES = [
 
 def configured_feeds():
     """Return custom approved RSS feeds plus Google News discovery feeds."""
-    feeds = []
+    feeds = list(DIRECT_NEWS_FEEDS)
     raw = os.getenv("NEWS_FEEDS", "")
     allowed = (
         "neb", "routine of nepal banda", "ronb", "troll cricket",
-        "bbc nepali", "onlinekhabar", "ok khabar", "okkhabar",
+        "bbc nepali", "onlinekhabar", "setopati", "ratopati",
+        "thaha khabar", "nepal samaya", "ok khabar", "okkhabar",
         "laligurash", "laligurash media",
     )
     for part in raw.split("|"):
