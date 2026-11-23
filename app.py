@@ -138,18 +138,18 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Check interval: <strong>{{ check_interval }} seconds</strong></p>
 <p class="small">Automatic checks run only while this free Render web service is awake. GitHub keep-awake pings are best-effort; this is not guaranteed 24/7 monitoring.</p>
 <div id="monitoring-status" class="status">Loading latest monitoring status...</div>
-<p class="small">Hybrid image mode: permitted publisher photo first, free AI-generated editorial illustration second, and a clearly labelled NayaDrishti graphic if image generation is unavailable. AI images are illustrations, not documentary photographs. Facebook auto-publishing remains off for testing.</p>
+<p class="small">Text-only news mode: posts contain a short Nepali headline, a factual summary, and the original source credit. No news images are fetched, generated, attached, or published.</p>
 <button id="check" onclick="runCheck()">Run a feed check</button>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
 <section class="panel"><h2>Creative tools</h2><p>Generate a separate, story-matched editorial illustration.</p><p><a href="/image-studio">Open NayaDrishti AI Image Studio →</a></p></section>
 <section class="panel"><h2>Publishing status</h2>
 <p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Do not enable until you have reviewed generated text and images.</p></section>
-<section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
+<section><div class="top"><h2>Generated text-only news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
 {% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
 <button type="button" onclick="refreshStoryImage('{{ d.item_id }}', this)">Regenerate story-matched image</button><span class="small">Replaces this saved image with a new image generated from the article headline and facts.</span>
-{% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
+{% else %}<p class="danger">Text-only news draft — ready for review.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">No image is required for this news post.</p>{% endif %}{% endif %}
 <div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
 {% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
@@ -178,14 +178,14 @@ b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started.
 try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});const data=await r.json();
 if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);b.disabled=false;b.textContent='Run a feed check';return;}
 const poll=async()=>{try{const s=await fetch('/run-check',{headers:{'Accept':'application/json'}});const state=await s.json();
-if(state.running){out.textContent='Still checking feeds and generating images...';document.getElementById("monitoring-status").textContent="A news check is currently running ("+(state.trigger||"unknown")+" check).";setTimeout(poll,2500);return;}
+if(state.running){out.textContent='Still checking news feeds and writing Nepali posts...';document.getElementById("monitoring-status").textContent="A news check is currently running ("+(state.trigger||"unknown")+" check).";setTimeout(poll,2500);return;}
 if(state.finished){
 const x=state.result||{};
 document.getElementById("monitoring-status").textContent="Last check: "+(state.finished_at||"time unavailable")+" · Started: "+(state.started_at||"unknown")+" · Type: "+(state.trigger||"unknown");
 if(state.error){out.textContent='Feed check failed: '+state.error;}
-else if(x.errors&&x.errors.length){const details=(x.feed_details||[]).map(f=>f.source+': '+f.entries_found+' entries · fresh '+(f.fresh_candidates||0)+' · old '+(f.stale_skipped||0)+' · undated '+(f.undated_skipped||0)+(f.error?' · ERROR '+f.error:'')).join('\\n');out.textContent='Feed check finished. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nFresh candidates: '+(x.fresh_candidates||0)+' · Old skipped: '+(x.stale_skipped||0)+' · Undated skipped: '+(x.undated_skipped||0)+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nFallback graphics: '+(x.fallback_graphics_used||0)+'\\nAlready seen: '+x.already_seen+'\\nFeed diagnostics:\\n'+details+'\\nErrors:\\n- '+x.errors.join('\\n- ');}
+else if(x.errors&&x.errors.length){const details=(x.feed_details||[]).map(f=>f.source+': '+f.entries_found+' entries · fresh '+(f.fresh_candidates||0)+' · old '+(f.stale_skipped||0)+' · undated '+(f.undated_skipped||0)+(f.error?' · ERROR '+f.error:'')).join('\\n');out.textContent='Feed check finished. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nFresh candidates: '+(x.fresh_candidates||0)+' · Old skipped: '+(x.stale_skipped||0)+' · Undated skipped: '+(x.undated_skipped||0)+'\\nDrafts saved: '+x.drafts_saved+'\\nAlready seen: '+x.already_seen+'\\nFeed diagnostics:\\n'+details+'\\nErrors:\\n- '+x.errors.join('\\n- ');}
 else if(x.new_items===0){const details=(x.feed_details||[]).map(f=>f.source+': '+f.entries_found+' entries · fresh '+(f.fresh_candidates||0)+' · old '+(f.stale_skipped||0)+' · undated '+(f.undated_skipped||0)+' · duplicates '+f.already_seen+(f.latest_published?' · newest '+f.latest_published:'')+(f.error?' · ERROR '+f.error:'')+(f.sample_titles&&f.sample_titles.length?' · Sample: '+f.sample_titles[0]:'')).join('\\n');out.textContent='Feed check finished, but no new unseen stories were saved. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nFresh candidates: '+(x.fresh_candidates||0)+' · Old skipped: '+(x.stale_skipped||0)+' · Undated skipped: '+(x.undated_skipped||0)+' · Already seen: '+x.already_seen+'\\nFeed diagnostics:\\n'+(details||'No feed details returned.')+'\\nA fresh candidate may still be a duplicate. Review feed errors and newest publication times.';}
-else{out.textContent='Feed check complete!\\nFeeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nFallback graphics: '+(x.fallback_graphics_used||0)+'\\nPublisher photos: '+x.publisher_photos_used+'\\nFacebook published: '+x.published;}
+else{out.textContent='Feed check complete!\\nFeeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nDrafts saved: '+x.drafts_saved+'\\nFacebook published: '+x.published;}
 b.disabled=false;b.textContent='Run a feed check';setTimeout(()=>location.reload(),2500);return;}
 out.textContent='Waiting for feed check status...';setTimeout(poll,2500);
 }catch(e){out.textContent='Could not read check status: '+e.message;b.disabled=false;b.textContent='Run a feed check';}};poll();
