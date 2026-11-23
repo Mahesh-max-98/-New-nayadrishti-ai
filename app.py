@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
 from database import get_drafts, init_db, set_draft_status
+from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
@@ -148,6 +149,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Automatic checks run from 5:00 AM through 10:55 PM Nepal time while the Render service is awake. Render's free service may sleep after inactivity, so checks can pause until it wakes.</p>
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
+<section class="panel"><h3>Groq usage protection</h3><div id="groq-usage" class="small">Loading daily usage...</div><p class="small">Safety budgets are tracked using Nepal time. AI writing pauses automatically when a budget is reached; RSS feed checks continue. This protects NayaDrishti, but cannot change Groq account limits.</p></section>
 <button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div></details>
 <section class="panel"><h2>Facebook publishing</h2>
@@ -177,6 +179,15 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
+async function loadGroqUsage(){
+ const target=document.getElementById("groq-usage");if(!target)return;
+ try{
+  const response=await fetch("/groq-usage",{credentials:"same-origin",cache:"no-store"});
+  if(!response.ok)throw new Error("Usage status unavailable");
+  const u=await response.json();
+  target.textContent="Today ("+u.date+"): "+u.posts_created+"/"+u.post_limit+" posts · "+u.requests+"/"+u.request_limit+" requests · "+u.tokens.toLocaleString()+" / "+u.token_limit.toLocaleString()+" tokens"+(u.paused?" · PAUSED: "+(u.pause_reason||"daily safety limit"):" · ACTIVE");
+ }catch(error){target.textContent="Could not load Groq usage status."}
+}
 function renderFeedHealth(data){
  const target=document.getElementById('feed-health-list');
  if(!target)return;
@@ -221,7 +232,7 @@ async function runCheck(){
    if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';await new Promise(resolve=>setTimeout(resolve,2500));return poll();}
    if(state.finished){
     const data=state.result||{};
-    renderFeedHealth(data);
+    renderFeedHealth(data);loadGroqUsage();
     const status=document.getElementById('monitoring-status');
     status.textContent='Last check completed · '+(state.trigger||'unknown')+' run';
     if(state.error)out.textContent='Check failed: '+state.error;
@@ -248,6 +259,7 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
+ loadGroqUsage();setInterval(loadGroqUsage,30000);
  const el=document.getElementById('monitoring-status');
  let seenDrafts=0;
  try{
@@ -342,6 +354,13 @@ def update_draft_status(item_id):
     set_draft_status(item_id, status)
     message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
     return redirect(url_for("home", notice=message))
+
+
+@app.get("/groq-usage")
+@login_required
+def groq_usage():
+    """Expose daily Groq budget counters only to signed-in administrators."""
+    return jsonify(get_groq_usage_status())
 
 
 @app.get("/health")
