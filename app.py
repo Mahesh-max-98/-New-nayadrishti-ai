@@ -142,7 +142,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Checks run while the Render service is awake. A free web service may sleep, so continuous 24/7 monitoring is not guaranteed.</p>
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
-<button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks run every 5 minutes while the service is awake. The dashboard refreshes when a new draft is saved.</p>
+<button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks run every {{ (check_interval / 60)|int }} minutes while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>
 <section class="panel"><h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
