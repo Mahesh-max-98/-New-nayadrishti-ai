@@ -31,7 +31,7 @@ class PrepareNewsPostTests(unittest.TestCase):
     def test_removes_publication_date_line(self):
         generated = (
             self.valid_nepali_post
-            + "\\nमिति: 2026-11-23"
+            + "\nमिति: 2026-11-23"
         )
         result = prepare_news_post(generated)
         self.assertNotIn("2026-11-23", result)
@@ -53,8 +53,8 @@ class PrepareNewsPostTests(unittest.TestCase):
 
     def test_removes_headline_label_and_markdown_formatting(self):
         generated = (
-            "**शीर्षक: सरकारले नयाँ शिक्षा नीति सार्वजनिक गर्‍यो**\\n"
-            "नीतिमा विद्यालय शिक्षासम्बन्धी नयाँ व्यवस्था समेटिएको छ।\\n"
+            "**शीर्षक: सरकारले नयाँ शिक्षा नीति सार्वजनिक गर्‍यो**\n"
+            "नीतिमा विद्यालय शिक्षासम्बन्धी नयाँ व्यवस्था समेटिएको छ।\n"
             "सम्बन्धित निकायले कार्यान्वयनको तयारी अघि बढाएको जनाएको छ।"
         )
         result = prepare_news_post(generated)
@@ -64,8 +64,8 @@ class PrepareNewsPostTests(unittest.TestCase):
 
     def test_rejects_incomplete_headline(self):
         generated = (
-            "सरकारले नयाँ नीति सार्वजनिक गर्‍यो तर\\n"
-            "यसबाट नागरिकलाई सेवा लिन सहज हुने बताइएको छ।\\n"
+            "सरकारले नयाँ नीति सार्वजनिक गर्‍यो तर\n"
+            "यसबाट नागरिकलाई सेवा लिन सहज हुने बताइएको छ।\n"
             "सम्बन्धित निकायले कार्यान्वयन प्रक्रिया अघि बढाउने जनाएको छ।"
         )
         with self.assertRaisesRegex(RuntimeError, "headline"):
@@ -73,8 +73,8 @@ class PrepareNewsPostTests(unittest.TestCase):
 
     def test_rejects_repeated_headline_as_body(self):
         generated = (
-            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\\n"
-            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\\n"
+            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\n"
+            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\n"
             "सम्बन्धित निकायले कार्यान्वयन प्रक्रिया अघि बढाउने जनाएको छ।"
         )
         with self.assertRaisesRegex(RuntimeError, "repeats its headline"):
