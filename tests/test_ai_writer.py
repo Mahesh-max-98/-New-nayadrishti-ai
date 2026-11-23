@@ -104,7 +104,8 @@ class GroqRequestResilienceTests(unittest.TestCase):
         from unittest.mock import Mock, patch
         limited = Mock(ok=False, status_code=429, headers={"Retry-After": "0"}, text="rate limited")
         success = Mock(ok=True, status_code=200, headers={}, text="")
-        with patch("ai_writer.requests.post", side_effect=[limited, success]) as post, \\
+        with patch.dict("os.environ", {"GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0"}), \
+             patch("ai_writer.requests.post", side_effect=[limited, success]) as post, \
              patch("ai_writer.time.sleep"):
             response = _post_to_groq(headers={}, payload={}, timeout=1)
         self.assertTrue(response.ok)
