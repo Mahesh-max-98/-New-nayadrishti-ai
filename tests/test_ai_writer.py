@@ -161,5 +161,36 @@ class CrossSourceCoverageTests(unittest.TestCase):
         self.assertEqual(result["status"], "single_source")
         self.assertIn("not proof", result["note"])
 
+
+class BreakingNewsDetectionTests(unittest.TestCase):
+    def test_breaking_signal_requires_recent_urgent_story_from_priority_source(self):
+        from news_monitor import detect_breaking_news
+        current = 1_800_000_000
+        flagged, reason = detect_breaking_news(
+            "नेपालमा ठूलो भूकम्प गएको छ", "उद्धार कार्य जारी छ",
+            "Kantipur", published_timestamp=current - 900, now=current,
+        )
+        self.assertTrue(flagged)
+        self.assertIn("verify", reason)
+
+    def test_breaking_signal_rejects_old_or_low_priority_story(self):
+        from news_monitor import detect_breaking_news
+        current = 1_800_000_000
+        old, _ = detect_breaking_news(
+            "नेपालमा बाढी आएको छ", "", "Kantipur",
+            published_timestamp=current - 3 * 3600, now=current,
+        )
+        low_priority, _ = detect_breaking_news(
+            "नेपालमा बाढी आएको छ", "", "Troll Cricket Nepal",
+            published_timestamp=current - 300, now=current,
+        )
+        self.assertFalse(old)
+        self.assertFalse(low_priority)
+
+    def test_topic_classifier_returns_other_for_unmatched_story(self):
+        from news_monitor import classify_story
+        self.assertEqual(classify_story("स्थानीय कार्यक्रम सम्पन्न भयो"), ["अन्य"])
+
+
 if __name__ == "__main__":
     unittest.main()
