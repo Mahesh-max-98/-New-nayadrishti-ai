@@ -16,6 +16,8 @@ _TIME_RE = re.compile(
     r"(?:\b\d{1,2}:\d{2}\s?(?:AM|PM)?\b|प्रकाशित समय|प्रकाशन समय)",
     re.IGNORECASE,
 )
+_DATE_LINE_RE = re.compile(r"^(?:मिति|date|published|updated|प्रकाशित|अपडेट)\s*[:：-]", re.IGNORECASE)
+_NUMERIC_DATE_RE = re.compile(r"\b(?:19|20)\d{2}[-/]\d{1,2}[-/]\d{1,2}\b")
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _HASHTAG_RE = re.compile(r"(?<!\w)#[\w\u0900-\u097F]+", re.UNICODE)
 
