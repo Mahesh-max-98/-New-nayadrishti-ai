@@ -104,7 +104,7 @@ def get_drafts(limit=50):
 
 def set_draft_status(item_id, status):
     with connection() as db:
-        db.execute("UPDATE drafts SET status=%s WHERE item_id=%s", (status, item_id))
+        db.execute("UPDATE drafts SET status=%s WHERE item_id=%s AND status=%s", (status, item_id, "draft"))
 
 
 

@@ -7,7 +7,7 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db
+from database import get_drafts, init_db, set_draft_status
 from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
@@ -130,7 +130,7 @@ button{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16
 button:disabled{opacity:.6;cursor:wait}
 input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0 14px;font-size:16px}
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
-.draft h3{margin:0 0 8px;white-space:pre-line;line-height:1.7;font-size:19px}
+.draft h3{margin:0 0 8px;white-space:pre-line;line-height:1.7;font-size:19px}\n.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{font-size:13px;padding:10px 13px}.actions .secondary{background:#475569}
 .top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 .feed-row{padding:11px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.feed-name{font-weight:700}.feed-ok{color:#166534}.feed-error{color:#b91c1c}.feed-meta{color:#64748b;font-size:13px;margin-top:4px}.feed-error-text{color:#b91c1c;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
 a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
@@ -154,9 +154,12 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on.</p></section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
+<p class="small">Review each Nepali post before using it. Approve marks it reviewed only; it does not publish to Facebook.</p>
+{% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
 {% for d in drafts %}<article class="draft"><h3>{{ d.summary }}</h3>
 <p class="small">Source: {{ d.source or "Original publisher" }}</p>
 {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Read original report</a>{% endif %}
+<div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
 </article>
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
@@ -280,6 +283,7 @@ def home():
         check_interval=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "300"))),
         publishing=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true",
         error=request.args.get("error"),
+        notice=request.args.get("notice"),
     )
 
 
@@ -299,6 +303,18 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+@app.post("/draft/<item_id>/status")
+@login_required
+def update_draft_status(item_id):
+    """Mark a draft reviewed or dismiss it; never publishes to social media."""
+    status = (request.form.get("status") or "").strip().lower()
+    if status not in {"approved", "rejected"}:
+        return redirect(url_for("home", notice="Invalid review action."))
+    set_draft_status(item_id, status)
+    message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
+    return redirect(url_for("home", notice=message))
 
 
 @app.get("/health")
