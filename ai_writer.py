@@ -24,7 +24,7 @@ def write_summary(title, description, source_name, article_url):
 लेखन ढाँचा:
 १. पहिलो लाइन: आकर्षक तर निष्पक्ष, छोटो नेपाली शीर्षक।
 २. त्यसपछि २ देखि ५ लाइन: के भयो, कहाँ भयो, कसलाई/कुन निकायलाई असर पर्छ र उपलब्ध मुख्य तथ्य सरल भाषामा।
-३. स्रोतको नाम वा स्रोत क्रेडिट पोस्टको पाठमा नलेख्नुहोस्। स्रोत छुट्टै dashboard विवरणमा सुरक्षित हुन्छ।
+३. कुनै पनि अवस्थामा स्रोत, प्रकाशक, वेबसाइट वा मिडियाको नाम पोस्टमा नलेख्नुहोस्। स्रोत विवरण dashboard मा मात्र सुरक्षित हुन्छ।
 
 कडा सम्पादकीय नियम:
 - जम्मा 3 देखि 6 लाइन लेख्नुहोस्। खाली लाइन नराख्नुहोस्.
@@ -36,7 +36,7 @@ def write_summary(title, description, source_name, article_url):
 - प्रकाशन समय, घडीको समय, "अहिले", "भर्खरै" वा मिति/समयको छुट्टै लाइन नथप्नुहोस्।
 - फोटो, चित्र, थम्बनेल वा डिजाइनबारे केही नलेख्नुहोस्।
 - ह्यासट्याग, इमोजी, बाहिरी लिंक, अंग्रेजी शीर्षक वा अतिरिक्त टिप्पणी नलेख्नुहोस्; अन्तिममा इमोजी कोडले थप्नेछ।
-- "स्रोत:", "Source:" वा प्रकाशकको नामलाई छुट्टै क्रेडिट लाइनका रूपमा नलेख्नुहोस्।
+- "स्रोत", "श्रोत", "Source", "Credit", "Courtesy", "Via", "साभार" वा मूल प्रकाशक/मिडियाको नाम पोस्टमा कतै पनि नराख्नुहोस्।
 - पोस्टको पाठ मात्र फर्काउनुहोस्।
 
 मूल स्रोत: {source_name}
@@ -77,13 +77,24 @@ def write_summary(title, description, source_name, article_url):
         )
     content = str(content).replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
     lines = []
+    publisher_name = (source_name or "").strip()
     for raw_line in content.splitlines():
         line = re.sub(r"^[-•*\s]+", "", raw_line).strip()
         if not line:
             continue
         if re.search(r"\b(\d{1,2}:\d{2}\s?(?:AM|PM)?|प्रकाशित समय|प्रकाशन समय)\b", line, re.I):
             continue
-        if line.lower().startswith(("स्रोत:", "source:")):
+        # Remove source-credit lines and inline credit tails regardless of punctuation/style.
+        if re.match(r"^(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\b", line, re.I):
+            continue
+        line = re.sub(
+            r"\s*(?:[-|—–]\s*)?(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\s*[:：–—-].*$",
+            "", line, flags=re.I,
+        ).strip()
+        # Never include the original publisher name in the public post.
+        if publisher_name and re.search(re.escape(publisher_name), line, re.I):
+            continue
+        if not line:
             continue
         lines.append(line)
 
