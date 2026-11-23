@@ -13,9 +13,7 @@ import requests
 
 from ai_writer import write_summary
 from database import already_seen, already_seen_title, get_draft_for_image_retry, get_drafts_needing_image_retry, remember, save_draft, set_draft_status
-from facebook_publisher import publish_image
-from image_generator import create_publisher_news_card, create_fallback_news_graphic, generate_news_image
-from google_research import research_story
+from facebook_publisher import publish_text
 
 log = logging.getLogger("nayadrishti")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -343,10 +341,8 @@ def check_feeds():
     result = {
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
-        "publisher_photos_used": 0, "ai_illustrations_used": 0, "fallback_graphics_used": 0,
-        "google_news_results": 0, "image_reference_candidates": 0, "google_discovery_feeds": 2,
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
-        "visual_references_checked": 0, "feed_details": [],
+        "feed_details": [],
     }
     if not feeds:
         result["errors"].append("NEWS_FEEDS is empty or invalid. Add RSS/Atom feed URLs in Render.")
@@ -437,98 +433,22 @@ def check_feeds():
                 if not summary:
                     raise ValueError("Groq returned an empty news post.")
 
-                # Research the story before choosing or generating its image.
-                # Google News results provide context; Google Images references
-                # are visually checked when Google CSE credentials are configured.
-                research = {}
-                try:
-                    research = research_story(title, article_text)
-                    result["google_news_results"] += len(research.get("news_results", []))
-                    result["image_reference_candidates"] += int(research.get("image_candidates", 0))
-                    if research.get("visual_reference"):
-                        result["visual_references_checked"] += 1
-                except Exception as research_exc:
-                    log.warning("Story research failed for %s: %s", source_name, research_exc)
-                    result["errors"].append(
-                        f"{source_name} research: {type(research_exc).__name__}: {str(research_exc)[:160]}"
-                    )
-
-                image_data = None
-                image_status = "failed"
-                image_error = None
-                try:
-                    publisher_photo = fetch_permitted_publisher_photo(item, link)
-                    if publisher_photo:
-                        photo_bytes, _photo_url = publisher_photo
-                        image_data = create_publisher_news_card(photo_bytes, title, summary)
-                        image_status = "publisher_photo"
-                        result["publisher_photos_used"] += 1
-                    else:
-                        # Use research context and the visually checked reference
-                        # only to improve scene/category selection. The reference
-                        # image itself is never downloaded or republished.
-                        research_context = research.get("news_context", "")
-                        visual_reference = research.get("visual_reference", "")
-                        visual_brief = " ".join(
-                            part for part in (
-                                "Research context: " + research_context if research_context else "",
-                                "Visual reference inspection (not evidence): " + visual_reference if visual_reference else "",
-                            ) if part
-                        )
-                        image_data = generate_news_image(
-                            title, article_text, summary,
-                            visual_brief=visual_brief[:900],
-                        )
-                        image_status = "ai_illustration"
-                        result["ai_illustrations_used"] += 1
-                except Exception as image_exc:
-                    image_message = str(image_exc).lower()
-                    if "daily free" in image_message or "temporarily paused" in image_message:
-                        log.info("AI image quota is paused; using the free branded fallback for source: %s", source_name)
-                    else:
-                        log.warning("Image provider unavailable for %s: %s", source_name, image_exc)
-                    image_error = f"{type(image_exc).__name__}: {str(image_exc)[:350]}"
-                    # Never attach an unrelated stock photo. A clearly labelled,
-                    # topic-headline graphic keeps the draft readable without
-                    # pretending to be a real scene or an AI photograph.
-                    try:
-                        image_data = create_fallback_news_graphic(title, summary)
-                        image_status = "fallback_graphic"
-                        result.setdefault("fallback_graphics_used", 0)
-                        result["fallback_graphics_used"] += 1
-                    except Exception as fallback_exc:
-                        log.exception("Fallback graphic failed for %s", source_name)
-                        result["errors"].append(
-                            f"{source_name} fallback graphic: {type(fallback_exc).__name__}: {str(fallback_exc)[:160]}"
-                        )
-                    result["errors"].append(
-                        f"{source_name} image provider unavailable: {type(image_exc).__name__}: {str(image_exc)[:180]}"
-                    )
-
-                # A draft is saved even when image creation fails; image-less drafts
-                # are never auto-published.
-                save_draft(item_id, title, source_name, link, summary,
-                           image_data=image_data, image_status=image_status,
-                           image_error=image_error)
+                # Text-only workflow: never fetch, generate, attach, or publish an image.
+                save_draft(
+                    item_id, title, source_name, link, summary,
+                    image_data=None, image_status="text_only", image_error=None,
+                )
                 result["drafts_saved"] += 1
 
-                # Publishing is a separate step from drafting. A Facebook API
-                # failure must not cause the same story to be regenerated every
-                # minute (which wastes AI/image credits and can create duplicate work).
                 status = "draft"
-                if image_data:
+                if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
                     try:
-                        # Keep AI disclosure in the post caption, not stamped across
-                        # the photograph, so readers are not misled about generated imagery.
-                        publish_caption = summary
-                        if image_status == "ai_illustration":
-                            publish_caption = summary.rstrip() + "\nचित्र: AI द्वारा तयार गरिएको सम्पादकीय चित्र।"
-                        publish_result = publish_image(publish_caption, image_data)
+                        publish_result = publish_text(summary)
                         if publish_result.get("published"):
                             result["published"] += 1
                             status = "published"
                     except Exception as publish_exc:
-                        log.exception("Facebook publishing failed for %s", source_name)
+                        log.exception("Facebook text publishing failed for %s", source_name)
                         result["errors"].append(
                             f"{source_name} Facebook publish: "
                             f"{type(publish_exc).__name__}: {str(publish_exc)[:180]}"
@@ -558,20 +478,17 @@ def check_feeds():
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true"
     )
     result["note"] = (
-        " Three priority sources are monitored: NEB News and Result, Routine of Nepal Banda, and Troll Cricket Nepal. Google News RSS is used only as a discovery index for the latter two, not as the original publisher. Stories are rewritten from available source reporting and only items published within the last 24 hours with a valid timestamp are eligible; undated and older entries are skipped. Stories are researched with Google News RSS. Visual references are searched "
-        "through Google Images only when Google Custom Search credentials are configured; "
-        "otherwise the story headline and reporting context guide the illustration. "
-        "Visual-reference images are never republished. Publisher photos are used only when their article "
-        "and image hosts are explicitly allowlisted; otherwise a labelled AI illustration "
-        "is used."
+        "Text-only Nepali news workflow. No article images are fetched, generated, attached, or published. "
+        "Only stories published within the last 24 hours with a valid timestamp are eligible; "
+        "undated and older entries are skipped. Google News RSS is discovery only, and the original "
+        "publisher is credited in the generated Nepali post."
     )
     total_stale = sum(item.get("stale_skipped", 0) for item in result["feed_details"])
     total_undated = sum(item.get("undated_skipped", 0) for item in result["feed_details"])
     log.info(
-        "Feed check summary: checked=%s/%s, new=%s, drafts=%s, duplicates=%s, stale_skipped=%s, undated_skipped=%s, errors=%s, publisher_photos=%s, ai_illustrations=%s, fallback_graphics=%s",
+        "Text-only feed check: checked=%s/%s, new=%s, drafts=%s, duplicates=%s, stale_skipped=%s, undated_skipped=%s, errors=%s",
         result["feeds_checked"], result["feeds_configured"], result["new_items"],
         result["drafts_saved"], result["already_seen"], total_stale, total_undated,
-        len(result["errors"]), result["publisher_photos_used"],
-        result["ai_illustrations_used"], result["fallback_graphics_used"],
+        len(result["errors"]),
     )
     return result
