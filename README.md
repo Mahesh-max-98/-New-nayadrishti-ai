@@ -8,10 +8,10 @@ NayaDrishti AI is a text-only Nepali news collection and Facebook publishing das
 2. Uses Google News discovery for RONB, Troll Cricket Nepal, BBC Nepali, OK Khabar, Laligurash Media Network, NEB, Thaha Khabar, Nepal Samaya, and other supported publishers.
 3. Sorts entries by publication date and skips undated or stale items.
 3. Opens the original article where accessible and prefers its text over a short RSS teaser.
-4. Checks item links and normalized headlines against previously seen stories.
-5. Uses Groq to write a clear 4–7 line Nepali Facebook post.
-6. Adds a final source-credit line. Publication timestamps and clock times are not included in the post.
-7. Saves the text draft, then publishes text only if Facebook publishing is explicitly enabled.
+4. Checks item links and normalized headlines against previously seen stories.\n5. Checks higher-priority publisher feeds first and ranks each story using publisher priority, topical signals and freshness. Priority labels guide discovery order; they do not certify factual accuracy.
+6. Uses Groq to write a clear 3–6 line Nepali Facebook post.
+7. Keeps publisher details separately for review. Public post text has no source-credit line or publication timestamp.
+8. Saves the text draft; Facebook publishing remains OFF unless explicitly enabled.
 
 There is no Image Studio, image-generation route, image attachment, publisher-photo fetching, or image storage in this project.
 
@@ -20,7 +20,7 @@ There is no Image Studio, image-generation route, image attachment, publisher-ph
 Direct public RSS feeds are included for:
 - Onlinekhabar — https://www.onlinekhabar.com/feed
 - Setopati — https://www.setopati.com/feed
-- Ratopati — https://www.ratopati.com/feed
+- Ratopati — https://www.ratopati.com/feed\n- Nagarik News — https://nagariknews.nagariknetwork.com/feed
 
 Built-in Google News RSS discovery queries cover:
 - Routine of Nepal Banda (RONB)
@@ -30,9 +30,9 @@ Built-in Google News RSS discovery queries cover:
 - Thaha Khabar and Nepal Samaya
 - OK Khabar
 - Laligurash Media Network
-- National Examinations Board (NEB)
+- Kantipur/eKantipur, Annapurna Post, Gorkhapatra, and Ujyaalo Online\n- National Examinations Board (NEB)
 
-Google News RSS is a discovery index. It does not scrape every post from those publishers' Facebook pages and cannot guarantee every story is found. The original publisher name is extracted from the Google News result title when available. For stronger coverage, add official public RSS/Atom feed URLs or authorized publisher APIs through `NEWS_FEEDS`.
+Google News RSS is a discovery index. It does not scrape every post from those publishers' Facebook pages and cannot guarantee every story is found. The original publisher name is extracted from the Google News result title when available. Publisher/feed priority is used to order checks, and story candidates are ranked by publisher priority, topic keywords and freshness. This is a transparent discovery heuristic, not an independent fact-check or a guarantee that a publisher is always accurate. For stronger coverage, add official public RSS/Atom feed URLs or authorized publisher APIs through `NEWS_FEEDS`.
 
 Example:
 
