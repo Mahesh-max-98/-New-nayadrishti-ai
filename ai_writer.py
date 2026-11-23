@@ -58,7 +58,9 @@ def prepare_news_post(content, source_name=""):
         raise RuntimeError("News headline must be clear and between 8 and 110 characters.")
     if len(re.findall(r"[\u0900-\u097F]", headline)) < 5:
         raise RuntimeError("News headline must be written clearly in Nepali.")
-    if headline.endswith((",", ":", ";", "—", "-")):
+    if headline.endswith((",", ":", ";", "—", "-")) or re.search(
+        r"(?:^|\s)(?:तर|र|भने|किनकि|तथा|सहित)$", headline
+    ):
         raise RuntimeError("News headline appears incomplete.")
     body_lines = lines[1:]
     if any(len(line) < 15 for line in body_lines):
