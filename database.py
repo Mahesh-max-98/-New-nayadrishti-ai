@@ -112,7 +112,7 @@ def _normalize_story_title(title):
     """Normalize punctuation and spacing while preserving Nepali and English words."""
     import re
     value = (title or "").casefold()
-    value = re.sub(r"[^\\w]+", " ", value, flags=re.UNICODE)
+    value = re.sub(r"[^\w]+", " ", value, flags=re.UNICODE)
     return " ".join(value.split())
 
 
