@@ -100,16 +100,14 @@ class GroqRequestResilienceTests(unittest.TestCase):
             result = _bounded_article_text("क" * 5000)
         self.assertEqual(len(result), 1200)
 
-    def test_temporary_rate_limit_is_retried(self):
+    def test_rate_limit_is_not_retried(self):
         from unittest.mock import Mock, patch
         limited = Mock(ok=False, status_code=429, headers={"Retry-After": "0"}, text="rate limited")
-        success = Mock(ok=True, status_code=200, headers={}, text="")
         with patch.dict("os.environ", {"GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0"}), \
-             patch("ai_writer.requests.post", side_effect=[limited, success]) as post, \
-             patch("ai_writer.time.sleep"):
+             patch("ai_writer.requests.post", return_value=limited) as post:
             response = _post_to_groq(headers={}, payload={}, timeout=1)
-        self.assertTrue(response.ok)
-        self.assertEqual(post.call_count, 2)
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(post.call_count, 1)
 
     def test_permanent_client_error_is_not_retried(self):
         from unittest.mock import Mock, patch
@@ -219,6 +217,23 @@ class BreakingNewsDetectionTests(unittest.TestCase):
     def test_topic_classifier_returns_other_for_unmatched_story(self):
         from news_monitor import classify_story
         self.assertEqual(classify_story("स्थानीय कार्यक्रम सम्पन्न भयो"), ["अन्य"])
+
+
+
+class GroqBudgetConfigurationTests(unittest.TestCase):
+    def test_default_budget_targets_one_hundred_posts_with_headroom(self):
+        from groq_budget import _limits
+        from unittest.mock import patch
+        with patch.dict("os.environ", {}, clear=True):
+            limits = _limits()
+        self.assertEqual(limits["post_limit"], 100)
+        self.assertEqual(limits["request_limit"], 180)
+        self.assertLess(limits["token_limit"], 200000)
+
+    def test_request_token_estimate_is_bounded(self):
+        from groq_budget import estimate_request_tokens
+        self.assertGreaterEqual(estimate_request_tokens("नेपाली समाचार"), 900)
+        self.assertLessEqual(estimate_request_tokens("क" * 50000), 5000)
 
 
 if __name__ == "__main__":
