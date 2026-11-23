@@ -1,6 +1,7 @@
 import os
 import threading
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from functools import wraps
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -94,10 +95,14 @@ def _scheduled_feed_check():
 
 scheduler = BackgroundScheduler(daemon=True)
 if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
+    # Run only during Nepal daytime hours. Render free instances can sleep;
+    # the scheduler resumes only when the web process is awake.
     scheduler.add_job(
         _scheduled_feed_check,
-        trigger="interval",
-        seconds=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "300"))),
+        trigger="cron",
+        minute="*/5",
+        hour="5-22",
+        timezone=ZoneInfo("Asia/Kathmandu"),
         id="nayadrishti_news_monitor",
         replace_existing=True,
         max_instances=1,
@@ -138,11 +143,11 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}
 <section class="panel"><div class="top"><h2>News monitoring</h2><form method="post" action="/logout"><button>Log out</button></form></div>
 <p>Configured news sources: <strong>{{ feed_count }}</strong></p>
-<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Interval: <strong>{{ check_interval }} seconds</strong></p>
-<p class="small">Checks run while the Render service is awake. A free web service may sleep, so continuous 24/7 monitoring is not guaranteed.</p>
+<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Schedule: <strong>5:00 AM–11:00 PM Nepal time</strong> · Every <strong>5 minutes</strong></p>
+<p class="small">Automatic checks run from 5:00 AM through 10:55 PM Nepal time while the Render service is awake. Render's free service may sleep after inactivity, so checks can pause until it wakes.</p>
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
-<button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks run every {{ (check_interval / 60)|int }} minutes while the service is awake. The dashboard refreshes when a new draft is saved.</p>
+<button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>
 <section class="panel"><h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
