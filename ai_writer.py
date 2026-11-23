@@ -62,7 +62,7 @@ def write_summary(title, description, source_name, article_url):
             if isinstance(block, dict) and block.get("type") == "text"
         )
     result = str(result).replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
-    lines = [re.sub(r"^[-•*\\s]+", "", line).strip() for line in result.splitlines()]
+    lines = [re.sub(r"^[-•*\s]+", "", line).strip() for line in result.splitlines()]
     lines = [line for line in lines if line]
     # Normalize the final credit so every post identifies the original source.
     credit = f"स्रोत: {source_name}"
