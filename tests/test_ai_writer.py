@@ -63,9 +63,6 @@ class PrepareNewsPostTests(unittest.TestCase):
         self.assertEqual(len(result.splitlines()), 3)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class NewsDiscoveryRankingTests(unittest.TestCase):
     def test_named_publishers_receive_priority_a(self):
@@ -95,3 +92,7 @@ class NewsDiscoveryRankingTests(unittest.TestCase):
         community = _story_priority(item, "Troll Cricket Nepal")
         established = _story_priority(item, "Kantipur")
         self.assertGreater(established[0], community[0])
+
+
+if __name__ == "__main__":
+    unittest.main()
