@@ -12,7 +12,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, remember, save_draft, set_draft_status
+from database import already_seen, already_seen_title, already_seen_story, remember, save_draft, set_draft_status
 from facebook_publisher import publish_text
 
 log = logging.getLogger("nayadrishti")
@@ -264,7 +264,7 @@ def check_feeds(on_new_draft=None):
                     continue
 
                 item_id = hashlib.sha256((publisher.lower() + "|" + article_url).encode("utf-8")).hexdigest()
-                if already_seen(item_id) or already_seen_title(title):
+                if already_seen(item_id) or already_seen_title(title) or already_seen_story(title, article_url):
                     detail["already_seen"] += 1
                     result["already_seen"] += 1
                     continue
