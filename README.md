@@ -98,3 +98,8 @@ The comparison uses collected headline text only. It does not independently veri
 ## Phase 8 — Nepali news writing quality
 
 The writing pipeline now requests a clear event-first headline, a concise lead, and 2–5 short body lines in simple natural Nepali. It puts the most important confirmed information first, avoids repeated details and clickbait, and preserves names, places, numbers, and uncertainty from the source. Output validation checks headline length and completeness, useful body lines, repeated headline content, Nepali-script balance, and prohibited credits, timestamps, links, and hashtags. Invalid drafts are rejected rather than silently rewritten with invented facts.
+
+
+## Phase 9 — smart categories and breaking-news signals
+
+New drafts are assigned a primary topic category using transparent Nepali/English keyword matching: politics, sports, economy, education, technology, international, or other. The dashboard can filter pending drafts by category or show only potential breaking-news candidates. Potential breaking labels require urgent wording, a higher-priority publisher, and a publication time within the last two hours. This is a triage heuristic, not verification or a guarantee that a story is breaking; editors must open the original report and confirm details. Existing drafts receive the database defaults until new drafts are collected. Breaking candidates are displayed before other pending drafts. Facebook publishing remains OFF by default.
