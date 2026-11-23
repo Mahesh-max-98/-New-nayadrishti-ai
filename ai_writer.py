@@ -200,11 +200,11 @@ def write_summary(title, description, source_name, article_url):
             timeout=45,
         )
         if not response.ok:
-            detail = response.text[:450].replace("\\n", " ").replace("\\r", " ")
+            detail = response.text[:450].replace("\n", " ").replace("\r", " ")
             pause_seconds = 0
             if response.status_code == 429:
                 daily_limit_error = bool(re.search(
-                    r"(per day|daily|requests per day|tokens per day|\\bRPD\\b|\\bTPD\\b)",
+                    r"(per day|daily|requests per day|tokens per day|RPD|TPD)",
                     detail, re.IGNORECASE
                 ))
                 retry_after = response.headers.get("Retry-After")
