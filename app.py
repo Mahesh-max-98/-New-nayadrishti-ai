@@ -28,10 +28,21 @@ _check_status = {
 }
 
 
-def _run_check(trigger):
+def _run_check(trigger, lock_acquired=False):
     global _check_status
-    if not _feed_execution_lock.acquire(blocking=False):
+    # Manual requests reserve the execution lock before starting this thread.
+    # Scheduled checks acquire it here. This prevents a race that could leave
+    # the dashboard stuck in the "checking" state.
+    if not lock_acquired and not _feed_execution_lock.acquire(blocking=False):
         app.logger.info("Feed check skipped: another check is already running.")
+        with _check_lock:
+            if not _check_status["running"]:
+                now = datetime.now(timezone.utc).isoformat()
+                _check_status = {
+                    "running": False, "finished": True, "result": None,
+                    "error": "Another news check is already running. Please try again shortly.",
+                    "started_at": now, "finished_at": now, "trigger": trigger,
+                }
         return
     with _check_lock:
         started = datetime.now(timezone.utc).isoformat()
@@ -129,15 +140,24 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% if logged_in %}<script>
 async function runCheck(){
  const button=document.getElementById('check'),out=document.getElementById('result');
+ if(button.disabled)return;
  button.disabled=true;button.textContent='Collecting news...';
- out.textContent='Checking RSS sources, filtering duplicates, reading article text, and writing Nepali summaries...';
+ out.textContent='Starting news collection...';
+ const startedAt=Date.now();
  try{
-  const start=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
-  if(!start.ok && start.status!==202)throw new Error('Could not start check (HTTP '+start.status+')');
+  const start=await fetch('/run-check',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
+  const startState=await start.json().catch(()=>({}));
+  if(start.status===401)throw new Error('Your admin session expired. Please sign in again.');
+  if(!start.ok && start.status!==202)throw new Error(startState.error||'Could not start check (HTTP '+start.status+')');
+  if(startState.error)throw new Error(startState.error);
+  out.textContent='Checking RSS sources and preparing Nepali news drafts...';
   const poll=async()=>{
-   const response=await fetch('/run-check',{headers:{'Accept':'application/json'}});
+   if(Date.now()-startedAt>180000)throw new Error('The check is taking longer than 3 minutes. It may still be running on the server; refresh the dashboard to see its latest status.');
+   const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
+   if(response.status===401)throw new Error('Your admin session expired. Please sign in again.');
+   if(!response.ok)throw new Error('Could not read check status (HTTP '+response.status+')');
    const state=await response.json();
-   if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';setTimeout(poll,2500);return;}
+   if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';await new Promise(resolve=>setTimeout(resolve,2500));return poll();}
    if(state.finished){
     const data=state.result||{};
     const status=document.getElementById('monitoring-status');
@@ -152,16 +172,17 @@ async function runCheck(){
       'Already seen: '+(data.already_seen||0),
       'Facebook posts published: '+(data.published||0)
      ];
-     if(data.errors&&data.errors.length)lines.push('Issues:\n- '+data.errors.join('\n- '));
-     out.textContent=lines.join('\n');
+     if(data.errors&&data.errors.length)lines.push('Issues:\\n- '+data.errors.join('\\n- '));
+     out.textContent=lines.join('\\n');
     }
     button.disabled=false;button.textContent='Check news now';
-    setTimeout(()=>location.reload(),2200);return;
+    if(!state.error)setTimeout(()=>location.reload(),2500);
+    return;
    }
-   setTimeout(poll,2500);
+   throw new Error('The server did not confirm that the news check started. Please try again.');
   };
-  poll();
- }catch(error){out.textContent='Could not check news: '+error.message;button.disabled=false;button.textContent='Check news now';}
+  await poll();
+ }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
  try{
@@ -230,18 +251,27 @@ def run_check():
     if request.method == "GET":
         with _check_lock:
             return jsonify(_check_status)
-    if _feed_execution_lock.locked():
+    if not _feed_execution_lock.acquire(blocking=False):
         with _check_lock:
+            # The scheduled worker may have just reserved the lock but not yet
+            # updated its status. Report a running state instead of returning
+            # an empty state that makes the browser poll forever.
+            if not _check_status["running"]:
+                now = datetime.now(timezone.utc).isoformat()
+                _check_status = {
+                    "running": True, "finished": False, "result": None, "error": None,
+                    "started_at": now, "finished_at": None, "trigger": "automatic",
+                }
             return jsonify(_check_status), 202
     with _check_lock:
-        if _check_status["running"]:
-            return jsonify(_check_status), 202
+        started = datetime.now(timezone.utc).isoformat()
         _check_status = {
             "running": True, "finished": False, "result": None, "error": None,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "finished_at": None, "trigger": "manual",
+            "started_at": started, "finished_at": None, "trigger": "manual",
         }
-    thread = threading.Thread(target=_run_check, args=("manual",), daemon=True)
+    thread = threading.Thread(
+        target=_run_check, args=("manual", True), daemon=True,
+    )
     thread.start()
     return jsonify(running=True, message="News check started."), 202
 
