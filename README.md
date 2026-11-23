@@ -93,3 +93,8 @@ Each saved draft receives a coverage label based on similar recent headlines col
 - **Needs comparison** flags similar headlines that contain different numeric details; compare the original articles manually.
 
 The comparison uses collected headline text only. It does not independently verify facts, inspect every publisher article, resolve contradictions, or guarantee that two publishers are editorially independent. Always open the original links before approving a draft. Facebook publishing remains OFF by default.
+
+
+## Phase 8 — Nepali news writing quality
+
+The writing pipeline now requests a clear event-first headline, a concise lead, and 2–5 short body lines in simple natural Nepali. It puts the most important confirmed information first, avoids repeated details and clickbait, and preserves names, places, numbers, and uncertainty from the source. Output validation checks headline length and completeness, useful body lines, repeated headline content, Nepali-script balance, and prohibited credits, timestamps, links, and hashtags. Invalid drafts are rejected rather than silently rewritten with invented facts.
