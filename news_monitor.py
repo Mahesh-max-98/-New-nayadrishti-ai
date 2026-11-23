@@ -50,12 +50,8 @@ def configured_feeds():
         if name and url.startswith(("https://", "http://")) and any(term in name.lower() for term in allowed):
             feeds.append((name, url))
 
-    # Keep the existing NEB RSS endpoint and discover requested publishers
-    # through Google News RSS when they do not expose a stable public feed.
-    neb_url = "https://nebnews.net/feed/"
-    if not any(url.rstrip("/") == neb_url.rstrip("/") for _, url in feeds):
-        feeds.append(("NEB News and Result", neb_url))
-
+    # Discover publishers through Google News RSS when they do not expose a
+    # stable public RSS feed. This is an index, not direct access to their pages.
     google_queries = [
         ("Google News - Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d'),
         ("Google News - Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d'),
