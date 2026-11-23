@@ -28,6 +28,15 @@ class PrepareNewsPostTests(unittest.TestCase):
         self.assertTrue(result.endswith("📰"))
         self.assertEqual(len(result.splitlines()), 3)
 
+    def test_removes_publication_date_line(self):
+        generated = (
+            self.valid_nepali_post
+            + "\\nमिति: 2026-11-23"
+        )
+        result = prepare_news_post(generated)
+        self.assertNotIn("2026-11-23", result)
+        self.assertEqual(len(result.splitlines()), 3)
+
     def test_rejects_english_dominated_output(self):
         generated = (
             "Government announces a new policy.\n"
