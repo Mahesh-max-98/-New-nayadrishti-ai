@@ -308,6 +308,7 @@ def check_feeds(on_new_draft=None):
     ai_paused_for_scan = bool(usage_at_start["paused"] or not usage_at_start["requests_remaining"] or not usage_at_start["tokens_remaining"] or not usage_at_start["posts_remaining"])
     if ai_paused_for_scan:
         result["ai_budget_paused"] = True
+        result["ai_budget_reason"] = usage_at_start.get("pause_reason") or "Daily NayaDrishti safety budget reached."
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
@@ -390,6 +391,7 @@ def check_feeds(on_new_draft=None):
                     )
                     log.warning("AI summary failed for %s (%s): %s", publisher, title[:100], exc)
                     if "GROQ_BUDGET_PAUSED" in str(exc):
+                        result["ai_requests"] = max(0, result["ai_requests"] - 1)
                         ai_paused_for_scan = True
                         result["ai_budget_paused"] = True
                         result["ai_budget_reason"] = str(exc)[:220]
