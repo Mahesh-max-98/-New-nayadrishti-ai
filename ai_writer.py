@@ -79,16 +79,16 @@ def write_summary(title, description, source_name, article_url):
     lines = []
     publisher_name = (source_name or "").strip()
     for raw_line in content.splitlines():
-        line = re.sub(r"^[-•*\\s]+", "", raw_line).strip()
+        line = re.sub(r"^[-•*\s]+", "", raw_line).strip()
         if not line:
             continue
-        if re.search(r"\\b(\\d{1,2}:\\d{2}\\s?(?:AM|PM)?|प्रकाशित समय|प्रकाशन समय)\\b", line, re.I):
+        if re.search(r"\b(\d{1,2}:\d{2}\s?(?:AM|PM)?|प्रकाशित समय|प्रकाशन समय)\b", line, re.I):
             continue
         # Remove source-credit lines and inline credit tails regardless of punctuation/style.
-        if re.match(r"^(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\\b", line, re.I):
+        if re.match(r"^(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\b", line, re.I):
             continue
         line = re.sub(
-            r"\\s*(?:[-|—–]\\s*)?(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\\s*[:：–—-].*$",
+            r"\s*(?:[-|—–]\s*)?(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\s*[:：–—-].*$",
             "", line, flags=re.I,
         ).strip()
         # Never include the original publisher name in the public post.
