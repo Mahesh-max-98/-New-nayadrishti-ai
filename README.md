@@ -1,65 +1,78 @@
 # NayaDrishti AI
 
-NayaDrishti AI is a mobile-friendly Flask dashboard for reading configured RSS/Atom feeds, creating concise Nepali-first/English-second news drafts with Groq, preventing duplicate processing, and optionally publishing text posts to the owner's Facebook Page.
+NayaDrishti AI is a text-only Nepali news collection and Facebook publishing dashboard. It discovers recent stories through RSS/Atom feeds, reads the original article where accessible, prepares concise Nepali posts with Groq, stores drafts in PostgreSQL, avoids duplicates, and can publish text to a Facebook Page.
 
-## Current features
+## What it does
 
-- Groq-powered bilingual short news drafts.
-- RSS/Atom feed reader with request timeouts.
-- Duplicate detection using PostgreSQL.
-- Android-friendly admin dashboard with a visible **Run a feed check** button.
-- Admin password login.
-- Facebook text publishing integration, OFF unless explicitly enabled.
-- Health endpoint at `/health`.
+1. Reads configured RSS/Atom feeds and Google News RSS discovery feeds.
+2. Sorts entries by publication date and skips undated or stale items.
+3. Opens the original article where accessible and prefers its text over a short RSS teaser.
+4. Checks item links and normalized headlines against previously seen stories.
+5. Uses Groq to write a clear 4–7 line Nepali Facebook post.
+6. Adds a final source-credit line. Publication timestamps and clock times are not included in the post.
+7. Saves the text draft, then publishes text only if Facebook publishing is explicitly enabled.
 
-## Important source and copyright rules
+There is no Image Studio, image-generation route, image attachment, publisher-photo fetching, or image storage in this project.
 
-Only add official RSS/Atom feeds or feeds you are authorized to access. A Facebook Page URL is not an RSS feed, and this app does not scrape Facebook pages. Do not copy complete articles or reuse photos without permission. Each generated draft includes source attribution and a link to the original source. AI summaries must be checked against the original reporting before publication.
+## News discovery sources
 
-The requested sources (NEB NEWS AND RESULT, TROLL CRICKET NEPAL, and Routine of Nepal Banda) must be connected using valid RSS/Atom feed URLs or authorized APIs. Do not put their ordinary Facebook page URLs into `NEWS_FEEDS`.
+Built-in Google News RSS queries cover:
+- Routine of Nepal Banda (RONB)
+- Troll Cricket Nepal
+- BBC Nepali
+- Onlinekhabar
+- OK Khabar
+- Laligurash Media Network
+- National Examinations Board (NEB)
 
-## Render environment variables
+Google News RSS is a discovery index. It does not scrape every post from those publishers' Facebook pages and cannot guarantee every story is found. The original publisher name is extracted from the Google News result title when available. For stronger coverage, add official public RSS/Atom feed URLs or authorized publisher APIs through `NEWS_FEEDS`.
+
+Example:
+
+    NEWS_FEEDS=Publisher Name=https://publisher.example/rss.xml|Another Publisher=https://another.example/feed
+
+Only use feed URLs you are authorized to access. The app does not bypass paywalls or access private Facebook content.
+
+## Environment variables
 
 Required:
-- `ADMIN_PASSWORD`: dashboard login password.
-- `FLASK_SECRET_KEY`: long random secret used to sign the login session.
-- `DATABASE_URL`: PostgreSQL connection URL.
-- `GROQ_API_KEY`: Groq API key.
-- `GROQ_MODEL`: model name enabled for your Groq account.
-- `NEWS_FEEDS`: pipe-separated source/feed pairs.
+- `ADMIN_PASSWORD`
+- `FLASK_SECRET_KEY`
+- `DATABASE_URL`
+- `GROQ_API_KEY`
 
 Optional:
-- `ENABLE_FACEBOOK_PUBLISHING`: keep `false` while testing; set to `true` only after drafts and Page permissions are verified.
-- `FB_PAGE_ID`, `FB_PAGE_ACCESS_TOKEN`, `FB_GRAPH_VERSION`: Facebook Page publishing settings.
-- `COOKIE_SECURE`: use `true` on HTTPS hosting.
-- `LOG_LEVEL`: defaults to INFO.
+- `GROQ_MODEL` (default: `openai/gpt-oss-120b`)
+- `NEWS_FEEDS`
+- `NEWS_MAX_AGE_HOURS` (default: 36; maximum accepted: 168)
+- `MAX_STORIES_PER_FEED` (default: 2; maximum accepted: 5)
+- `ENABLE_AUTO_MONITORING` (default: true)
+- `NEWS_CHECK_INTERVAL_SECONDS` (default: 600; minimum: 600)
+- `ENABLE_FACEBOOK_PUBLISHING` (default: false)
+- `FB_PAGE_ID` / `FACEBOOK_PAGE_ID`
+- `FB_PAGE_ACCESS_TOKEN` / `FACEBOOK_PAGE_ACCESS_TOKEN`
+- `FB_GRAPH_VERSION` (default: v23.0)
+- `COOKIE_SECURE`
+- `LOG_LEVEL`
 
-Example feed format (replace with actual authorized feed URLs):
-```
-NEWS_FEEDS=Example Source=https://example.com/rss.xml|Another Source=https://example.org/feed
-```
+Keep API keys, passwords, and access tokens in Render environment variables. Never commit them to GitHub or share them in chat/screenshots.
 
-Never put API keys, passwords, or access tokens in GitHub. Store them only in Render environment variables. Do not send them in chat or screenshots.
+## Safe rollout
 
-## Deploy
+1. Deploy this branch to the Render service.
+2. Confirm the required environment variables are set in Render.
+3. Keep `ENABLE_FACEBOOK_PUBLISHING=false`.
+4. Sign in and run several manual news checks.
+5. Open each source link and verify the Nepali summary, source credit, and freshness.
+6. Only after the drafts are consistently accurate, set `ENABLE_FACEBOOK_PUBLISHING=true`.
 
-The included Render configuration deploys the web dashboard. Render should redeploy after a commit to the connected GitHub branch.
+Facebook publishing uses the Page `/{page-id}/feed` endpoint and sends a text message only. The code defaults to publishing OFF.
 
-Open the service URL, sign in with `ADMIN_PASSWORD`, and press **Run a feed check**. The response shows configured feeds, checked feeds, drafts, duplicates, publication count, and errors.
+## Monitoring limits
 
-## One-minute monitoring
-
-`worker.py` can run the feed checker on a 60-second schedule, but it must be deployed as a separate always-on background worker. Free web services may sleep and do not guarantee one-minute background execution. Check the hosting plan and costs before enabling a worker.
-
-## Facebook publishing
-
-Publishing is disabled by default. First verify feed parsing and generated drafts. Then verify that the Page access token has the required Meta permissions. Only enable direct publishing after you have reviewed multiple drafts and confirmed they are accurate. This application currently publishes text/link posts; image-card generation is not included in this rebuild yet.
+The dashboard scheduler runs only while the Render web service is awake. Free web services can sleep, so this does not guarantee 24/7 monitoring. An always-on worker or external scheduler may be needed for dependable continuous collection; check the hosting plan and cost before enabling one.
 
 ## Local run
 
-```bash
-pip install -r requirements.txt
-python app.py
-```
-
-The background worker can be started separately with `python worker.py` when a suitable always-on environment is available.
+    pip install -r requirements.txt
+    python app.py

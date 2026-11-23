@@ -1,18 +1,13 @@
 import os
-import base64
 import threading
-import uuid
-import io
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for, Response, send_file
 from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import init_db, get_drafts, get_draft_image, replace_draft_image
-from image_generator import create_fallback_news_graphic, generate_news_image
-from news_monitor import check_feeds, configured_feeds, fetch_article_text
-from google_research import research_story
+from database import get_drafts, init_db
+from news_monitor import check_feeds, configured_feeds
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
@@ -25,75 +20,50 @@ app.config.update(
 )
 init_db()
 
-# Keep feed checks out of HTTP requests and prevent scheduled/manual overlap.
 _check_lock = threading.Lock()
 _feed_execution_lock = threading.Lock()
-_check_status = {"running": False, "finished": False, "result": None, "error": None, "started_at": None, "finished_at": None, "trigger": None}
+_check_status = {
+    "running": False, "finished": False, "result": None, "error": None,
+    "started_at": None, "finished_at": None, "trigger": None,
+}
 
 
-def _execute_feed_check():
+def _run_check(trigger):
     global _check_status
     if not _feed_execution_lock.acquire(blocking=False):
-        # Never leave the dashboard spinner stuck if a scheduled check won
-        # the race against a manual check.
-        with _check_lock:
-            _check_status = {
-                "running": False, "finished": True, "result": None,
-                "error": "Another feed check is already running. Refresh the dashboard and wait for that check to finish.",
-                "started_at": _check_status.get("started_at"),
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "trigger": _check_status.get("trigger", "manual"),
-            }
+        app.logger.info("Feed check skipped: another check is already running.")
         return
+    with _check_lock:
+        started = datetime.now(timezone.utc).isoformat()
+        _check_status = {
+            "running": True, "finished": False, "result": None, "error": None,
+            "started_at": started, "finished_at": None, "trigger": trigger,
+        }
     try:
         result = check_feeds()
         with _check_lock:
-            _check_status = {"running": False, "finished": True, "result": result, "error": None, "started_at": _check_status.get("started_at"), "finished_at": datetime.now(timezone.utc).isoformat(), "trigger": _check_status.get("trigger", "manual")}
+            _check_status = {
+                "running": False, "finished": True, "result": result, "error": None,
+                "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
+                "trigger": trigger,
+            }
     except Exception as exc:
-        app.logger.exception("Feed check failed")
+        app.logger.exception("News feed check failed")
         with _check_lock:
             _check_status = {
                 "running": False, "finished": True, "result": None,
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
-                "started_at": _check_status.get("started_at"),
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "trigger": _check_status.get("trigger", "manual"),
+                "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
+                "trigger": trigger,
             }
     finally:
         _feed_execution_lock.release()
-
-
-def _run_feed_check_in_background():
-    _execute_feed_check()
 
 
 def _scheduled_feed_check():
-    global _check_status
-    if not _feed_execution_lock.acquire(blocking=False):
-        app.logger.info("Scheduled feed check skipped: another check is already running.")
-        return
-    with _check_lock:
-        _check_status = {"running": True, "finished": False, "result": None, "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "trigger": "automatic"}
-    try:
-        result = check_feeds()
-        with _check_lock:
-            _check_status = {"running": False, "finished": True, "result": result, "error": None, "started_at": _check_status.get("started_at"), "finished_at": datetime.now(timezone.utc).isoformat(), "trigger": "automatic"}
-    except Exception as exc:
-        app.logger.exception("Scheduled feed check failed")
-        with _check_lock:
-            _check_status = {
-                "running": False, "finished": True, "result": None,
-                "error": f"{type(exc).__name__}: {str(exc)[:300]}",
-                "started_at": _check_status.get("started_at"),
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "trigger": "automatic",
-            }
-    finally:
-        _feed_execution_lock.release()
+    _run_check("automatic")
 
 
-# On Render's free web service this runs only while the service is awake.
-# A continuously running paid worker would be needed for guaranteed 24/7 checks.
 scheduler = BackgroundScheduler(daemon=True)
 if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
     scheduler.add_job(
@@ -106,91 +76,102 @@ if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
         coalesce=True,
     )
     scheduler.start()
-    app.logger.info("Automatic news monitoring enabled (minimum interval: 600 seconds).")
+    app.logger.info("Automatic text-only news monitoring enabled.")
 else:
     app.logger.info("Automatic news monitoring is disabled.")
 
 
 PAGE = """
-<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NayaDrishti AI</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NayaDrishti AI — News Desk</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f5f9;color:#172033;font-family:Arial,sans-serif}
-.wrap{max-width:920px;margin:auto;padding:18px}header{background:#172554;color:#fff;padding:24px;border-radius:16px;margin:8px 0 18px}
+.wrap{max-width:920px;margin:auto;padding:18px}
+header{background:#172554;color:#fff;padding:24px;border-radius:16px;margin:8px 0 18px}
 h1{margin:0 0 6px;font-size:27px}header p{margin:4px 0;color:#dbeafe}
 .panel,.draft{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin:14px 0}
-button{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;font-size:15px}
+button{background:#1d4ed8;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;font-size:15px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
 input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0 14px;font-size:16px}
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
-.draft h3{margin:0 0 8px}.draft .post-headline{white-space:pre-line;line-height:1.65;font-size:21px}.draft p{white-space:pre-wrap;line-height:1.55}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
-a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:100%;max-height:420px;object-fit:contain;background:#0f172a;border-radius:10px;margin:10px 0}
+.draft h3{margin:0 0 8px;white-space:pre-line;line-height:1.7;font-size:19px}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 </style></head><body><main class="wrap">
 <header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
 {% if not logged_in %}
-<section class="panel"><h2>Admin sign in</h2><p class="small">Sign in to check feeds and view generated drafts.</p>
+<section class="panel"><h2>Admin sign in</h2><p class="small">Sign in to monitor news sources and review posts.</p>
 <form method="post" action="/login"><label for="password">Admin password</label>
 <input id="password" name="password" type="password" required autocomplete="current-password">
 <button type="submit">Sign in</button></form>{% if error %}<p class="danger">{{ error }}</p>{% endif %}</section>
 {% else %}
-<section class="panel"><div class="top"><h2>Feed controls</h2><form method="post" action="/logout"><button>Log out</button></form></div>
-<p>Configured feeds: <strong>{{ feed_count }}</strong></p>
-<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Check interval: <strong>{{ check_interval }} seconds</strong></p>
-<p class="small">Automatic checks run only while this free Render web service is awake. GitHub keep-awake pings are best-effort; this is not guaranteed 24/7 monitoring.</p>
-<div id="monitoring-status" class="status">Loading latest monitoring status...</div>
-<p class="small">Hybrid image mode: permitted publisher photo first, free AI-generated editorial illustration second, and a clearly labelled NayaDrishti graphic if image generation is unavailable. AI images are illustrations, not documentary photographs. Facebook auto-publishing remains off for testing.</p>
-<button id="check" onclick="runCheck()">Run a feed check</button>
-<div id="result" class="status" aria-live="polite">Ready. Press the button to check your feeds.</div></section>
-<section class="panel"><h2>Creative tools</h2><p>Generate a separate, story-matched editorial illustration.</p><p><a href="/image-studio">Open NayaDrishti AI Image Studio →</a></p></section>
-<section class="panel"><h2>Publishing status</h2>
-<p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
-<p class="small">Do not enable until you have reviewed generated text and images.</p></section>
-<section><div class="top"><h2>Generated news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
-{% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
-{% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
-<button type="button" onclick="refreshStoryImage('{{ d.item_id }}', this)">Regenerate story-matched image</button><span class="small">Replaces this saved image with a new image generated from the article headline and facts.</span>
-{% else %}<p class="danger">Image not ready — this draft will not be auto-published.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">The system will retry image generation after its 30-minute retry cooldown.</p>{% endif %}{% endif %}
-<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div>
-<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
-{% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
+<section class="panel"><div class="top"><h2>News monitoring</h2><form method="post" action="/logout"><button>Log out</button></form></div>
+<p>Configured news sources: <strong>{{ feed_count }}</strong></p>
+<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Interval: <strong>{{ check_interval }} seconds</strong></p>
+<p class="small">Checks run while the Render service is awake. A free web service may sleep, so continuous 24/7 monitoring is not guaranteed.</p>
+<p class="small">Text-only mode: no image generation, image fetching, photo attachments, or image studio. News posts contain a Nepali headline, factual summary, and source credit. The post text does not include publication timestamps.</p>
+<div id="monitoring-status" class="status">Loading latest check status...</div>
+<button id="check" onclick="runCheck()">Check news now</button>
+<div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>
+<section class="panel"><h2>Facebook publishing</h2>
+<p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
+<p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on.</p></section>
+<section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
+{% for d in drafts %}<article class="draft"><h3>{{ d.summary }}</h3>
+<p class="small">Source: {{ d.source or "Original publisher" }}</p>
+{% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Read original report</a>{% endif %}
+</article>
+{% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
-async function refreshGraphic(itemId,button){
- button.disabled=true;button.textContent='Refreshing design...';
+async function runCheck(){
+ const button=document.getElementById('check'),out=document.getElementById('result');
+ button.disabled=true;button.textContent='Collecting news...';
+ out.textContent='Checking RSS sources, filtering duplicates, reading article text, and writing Nepali summaries...';
  try{
-  const response=await fetch('/refresh-fallback/'+itemId,{method:'POST',headers:{'Accept':'application/json'}});
-  const data=await response.json();
-  if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
-  location.reload();
- }catch(error){button.disabled=false;button.textContent='Refresh graphic design';alert('Could not refresh graphic: '+error.message);}
+  const start=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});
+  if(!start.ok && start.status!==202)throw new Error('Could not start check (HTTP '+start.status+')');
+  const poll=async()=>{
+   const response=await fetch('/run-check',{headers:{'Accept':'application/json'}});
+   const state=await response.json();
+   if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';setTimeout(poll,2500);return;}
+   if(state.finished){
+    const data=state.result||{};
+    const status=document.getElementById('monitoring-status');
+    status.textContent='Last check completed · '+(state.trigger||'unknown')+' run';
+    if(state.error)out.textContent='Check failed: '+state.error;
+    else{
+     const lines=[
+      'News check complete.',
+      'Sources checked: '+(data.feeds_checked||0)+' / '+(data.feeds_configured||0),
+      'Fresh stories found: '+(data.fresh_candidates||0),
+      'New drafts saved: '+(data.drafts_saved||0),
+      'Already seen: '+(data.already_seen||0),
+      'Facebook posts published: '+(data.published||0)
+     ];
+     if(data.errors&&data.errors.length)lines.push('Issues:\n- '+data.errors.join('\n- '));
+     out.textContent=lines.join('\n');
+    }
+    button.disabled=false;button.textContent='Check news now';
+    setTimeout(()=>location.reload(),2200);return;
+   }
+   setTimeout(poll,2500);
+  };
+  poll();
+ }catch(error){out.textContent='Could not check news: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
-async function refreshStoryImage(itemId,button){
- button.disabled=true;button.textContent='Generating story-matched image...';
+window.addEventListener('load',async()=>{
  try{
-  const response=await fetch('/refresh-story-image/'+itemId,{method:'POST',headers:{'Accept':'application/json'}});
-  const data=await response.json();
-  if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
-  location.reload();
- }catch(error){button.disabled=false;button.textContent='Regenerate story-matched image';alert('Could not regenerate image: '+error.message);}
-}
-async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
-b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News and images are being processed in the background.';
-try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});const data=await r.json();
-if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);b.disabled=false;b.textContent='Run a feed check';return;}
-const poll=async()=>{try{const s=await fetch('/run-check',{headers:{'Accept':'application/json'}});const state=await s.json();
-if(state.running){out.textContent='Still checking feeds and generating images...';document.getElementById("monitoring-status").textContent="A news check is currently running ("+(state.trigger||"unknown")+" check).";setTimeout(poll,2500);return;}
-if(state.finished){
-const x=state.result||{};
-document.getElementById("monitoring-status").textContent="Last check: "+(state.finished_at||"time unavailable")+" · Started: "+(state.started_at||"unknown")+" · Type: "+(state.trigger||"unknown");
-if(state.error){out.textContent='Feed check failed: '+state.error;}
-else if(x.errors&&x.errors.length){const details=(x.feed_details||[]).map(f=>f.source+': '+f.entries_found+' entries · fresh '+(f.fresh_candidates||0)+' · old '+(f.stale_skipped||0)+' · undated '+(f.undated_skipped||0)+(f.error?' · ERROR '+f.error:'')).join('\\n');out.textContent='Feed check finished. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nFresh candidates: '+(x.fresh_candidates||0)+' · Old skipped: '+(x.stale_skipped||0)+' · Undated skipped: '+(x.undated_skipped||0)+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nFallback graphics: '+(x.fallback_graphics_used||0)+'\\nAlready seen: '+x.already_seen+'\\nFeed diagnostics:\\n'+details+'\\nErrors:\\n- '+x.errors.join('\\n- ');}
-else if(x.new_items===0){const details=(x.feed_details||[]).map(f=>f.source+': '+f.entries_found+' entries · fresh '+(f.fresh_candidates||0)+' · old '+(f.stale_skipped||0)+' · undated '+(f.undated_skipped||0)+' · duplicates '+f.already_seen+(f.latest_published?' · newest '+f.latest_published:'')+(f.error?' · ERROR '+f.error:'')+(f.sample_titles&&f.sample_titles.length?' · Sample: '+f.sample_titles[0]:'')).join('\\n');out.textContent='Feed check finished, but no new unseen stories were saved. Feeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nFresh candidates: '+(x.fresh_candidates||0)+' · Old skipped: '+(x.stale_skipped||0)+' · Undated skipped: '+(x.undated_skipped||0)+' · Already seen: '+x.already_seen+'\\nFeed diagnostics:\\n'+(details||'No feed details returned.')+'\\nA fresh candidate may still be a duplicate. Review feed errors and newest publication times.';}
-else{out.textContent='Feed check complete!\\nFeeds checked: '+x.feeds_checked+'/'+x.feeds_configured+'\\nNew stories: '+x.new_items+'\\nDrafts saved: '+x.drafts_saved+'\\nAI illustrations: '+x.ai_illustrations_used+'\\nFallback graphics: '+(x.fallback_graphics_used||0)+'\\nPublisher photos: '+x.publisher_photos_used+'\\nFacebook published: '+x.published;}
-b.disabled=false;b.textContent='Run a feed check';setTimeout(()=>location.reload(),2500);return;}
-out.textContent='Waiting for feed check status...';setTimeout(poll,2500);
-}catch(e){out.textContent='Could not read check status: '+e.message;b.disabled=false;b.textContent='Run a feed check';}};poll();
-}catch(e){out.textContent='Request failed: '+e.message;b.disabled=false;b.textContent='Run a feed check';}}
-window.addEventListener("load",async()=>{try{const r=await fetch("/run-check",{headers:{"Accept":"application/json"}});if(!r.ok)return;const s=await r.json();const el=document.getElementById("monitoring-status");if(!el)return;if(s.running){el.textContent="A news check is currently running ("+(s.trigger||"unknown")+" check).";}else if(s.finished){el.textContent="Last check: "+(s.finished_at||"time unavailable")+" · Started: "+(s.started_at||"unknown")+" · Type: "+(s.trigger||"unknown");}else{el.textContent="No check has completed since this server started. Automatic monitoring is "+("{{ \"enabled\" if monitoring_enabled else \"disabled\" }}")+". The next scheduled check runs while Render is awake.";}}catch(e){}});
+  const response=await fetch('/run-check',{headers:{'Accept':'application/json'}});
+  const state=await response.json(),el=document.getElementById('monitoring-status');
+  if(state.running)el.textContent='A news check is currently running.';
+  else if(state.finished)el.textContent='The latest news check has finished.';
+  else el.textContent='No check has completed since this server started.';
+ }catch(error){}
+});
 </script>{% endif %}</body></html>
 """
 
@@ -208,7 +189,9 @@ def login_required(fn):
 def home():
     logged_in = bool(session.get("admin"))
     return render_template_string(
-        PAGE, logged_in=logged_in, drafts=get_drafts() if logged_in else [],
+        PAGE,
+        logged_in=logged_in,
+        drafts=get_drafts() if logged_in else [],
         feed_count=len(configured_feeds()),
         monitoring_enabled=os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true",
         check_interval=max(600, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "600"))),
@@ -237,92 +220,7 @@ def logout():
 
 @app.get("/health")
 def health():
-    return jsonify(status="ok", service="NayaDrishti AI")
-
-
-@app.post("/refresh-fallback/<item_id>")
-@login_required
-def refresh_fallback(item_id):
-    """Rebuild an existing fallback graphic using the current design template."""
-    draft = next((item for item in get_drafts(limit=100) if item["item_id"] == item_id), None)
-    if not draft:
-        return jsonify(error="Draft not found."), 404
-    if draft.get("image_status") != "fallback_graphic":
-        return jsonify(error="Only fallback graphics can be refreshed here."), 409
-    try:
-        graphic = create_fallback_news_graphic(draft["title"], draft.get("summary") or "")
-        if not replace_draft_image(item_id, graphic, "fallback_graphic"):
-            return jsonify(error="Could not save the refreshed graphic."), 500
-        return jsonify(success=True, message="Fallback graphic refreshed.")
-    except Exception as exc:
-        app.logger.exception("Could not refresh fallback graphic for %s", item_id)
-        return jsonify(error=f"Graphic refresh failed: {type(exc).__name__}: {str(exc)[:180]}"), 500
-
-
-@app.post("/refresh-story-image/<item_id>")
-@login_required
-def refresh_story_image(item_id):
-    """Regenerate a saved AI illustration using the latest story-specific direction."""
-    draft = next((item for item in get_drafts(limit=100) if item["item_id"] == item_id), None)
-    if not draft:
-        return jsonify(error="Draft not found."), 404
-    try:
-        article_text = fetch_article_text(draft.get("url") or "", draft.get("summary") or "")
-        if len((article_text or "").strip()) < 180:
-            raise RuntimeError(
-                "The original article could not be read well enough to create a fact-matched image. "
-                "Please use the labelled editorial graphic until the source text is available."
-            )
-
-        # Research first: compare the headline and opening article facts with
-        # related reporting, then pass the findings into the visual scene plan.
-        research = research_story(draft["title"], article_text)
-        research_context = research.get("news_context", "")
-        visual_reference = research.get("visual_reference", "")
-        visual_brief = " ".join(
-            part for part in (
-                "Verified source article is primary evidence. " + research_context if research_context else "",
-                "Optional image-category reference (not evidence): " + visual_reference if visual_reference else "",
-            ) if part
-        )
-        image = generate_news_image(
-            draft["title"], article_text, draft.get("summary") or "",
-            visual_brief=visual_brief[:1500],
-        )
-        if not replace_draft_image(item_id, image, "ai_illustration"):
-            return jsonify(error="Could not save the regenerated image."), 500
-        return jsonify(success=True, message="Story image regenerated.")
-    except Exception as exc:
-        app.logger.exception("AI image regeneration was rejected or unavailable for %s", item_id)
-        # Never keep presenting a known-bad generated image after QA rejects it.
-        # Save a clearly labelled, topic-specific editorial graphic instead.
-        try:
-            fallback = create_fallback_news_graphic(
-                draft.get("title") or "Latest News",
-                draft.get("summary") or "",
-            )
-            if not replace_draft_image(item_id, fallback, "fallback_graphic"):
-                return jsonify(error="AI image failed review and the fallback graphic could not be saved."), 500
-            return jsonify(
-                success=True,
-                fallback=True,
-                message="AI image did not pass the accuracy check. A clearly labelled editorial graphic was saved instead.",
-            )
-        except Exception as fallback_exc:
-            app.logger.exception("Could not save fallback graphic for %s", item_id)
-            return jsonify(
-                error=f"Image regeneration failed: {type(exc).__name__}: {str(exc)[:140]}; "
-                      f"fallback failed: {type(fallback_exc).__name__}: {str(fallback_exc)[:100]}"
-            ), 500
-
-
-@app.get("/draft-image/<item_id>")
-@login_required
-def draft_image(item_id):
-    data = get_draft_image(item_id)
-    if not data:
-        return "Image not found.", 404
-    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "private, no-store, max-age=0"})
+    return jsonify(status="ok", service="NayaDrishti AI", mode="text_only")
 
 
 @app.route("/run-check", methods=["GET", "POST"])
@@ -332,153 +230,20 @@ def run_check():
     if request.method == "GET":
         with _check_lock:
             return jsonify(_check_status)
-
-    with _check_lock:
-        if _feed_execution_lock.locked():
-            # A scheduled or previous check owns the worker. Do not replace its
-            # status with a new manual run that cannot acquire the execution lock.
+    if _feed_execution_lock.locked():
+        with _check_lock:
             return jsonify(_check_status), 202
+    with _check_lock:
         if _check_status["running"]:
-            started = _check_status.get("started_at")
-            try:
-                started_at = datetime.fromisoformat(started) if started else None
-                age = (datetime.now(timezone.utc) - started_at).total_seconds() if started_at else 0
-            except (TypeError, ValueError):
-                age = 0
-            if age < 900:
-                return jsonify(_check_status), 202
-            app.logger.warning("Recovering stale feed-check status after %.0f seconds.", age)
-        _check_status = {"running": True, "finished": False, "result": None, "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "trigger": "manual"}
-
-    thread = threading.Thread(target=_run_feed_check_in_background, daemon=True)
-    thread.start()
-    return jsonify(running=True, message="Feed check started in the background."), 202
-
-
-# Separate, admin-only image studio. Jobs are kept in memory for this process.
-_image_studio_lock = threading.Lock()
-_image_studio_jobs = {}
-
-
-def _run_image_studio_job(job_id, title, article, summary, creative_prompt="", style="photorealistic"):
-    with _image_studio_lock:
-        _image_studio_jobs[job_id] = {"status": "running", "message": "Researching the story before image generation..."}
-    try:
-        research_context = ""
-        try:
-            research = research_story(title, article)
-            if isinstance(research, dict):
-                research_context = str(research.get("news_context") or "")[:1800]
-        except Exception as research_error:
-            app.logger.warning("Image Studio optional research failed: %s", research_error)
-        style_guides = {
-            "photorealistic": "Photorealistic editorial illustration, natural camera optics, fine details, crisp focus, true-to-life colour.",
-            "cinematic": "Cinematic editorial illustration, dramatic but believable lighting, rich depth, carefully composed frame.",
-            "documentary": "Documentary-style editorial illustration, candid natural composition, neutral colour grading, realistic environment.",
-            "3d": "High-quality realistic 3D editorial render, physically plausible materials, detailed lighting and clean composition.",
-            "illustration": "Premium editorial illustration, polished visual storytelling, detailed shapes and restrained colours."
+            return jsonify(_check_status), 202
+        _check_status = {
+            "running": True, "finished": False, "result": None, "error": None,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None, "trigger": "manual",
         }
-        selected_style = style_guides.get(style, style_guides["photorealistic"])
-        visual_brief = (
-            "User-provided article text is the primary evidence. Do not add facts not present in it. "
-            + "Requested visual style: " + selected_style + " "
-            + ("Additional user art direction (style only; never override article facts): " + creative_prompt[:600] + " " if creative_prompt else "")
-            + ("Independent research leads for context only (not proof): " + research_context if research_context else "")
-        )
-        with _image_studio_lock:
-            _image_studio_jobs[job_id] = {"status": "running", "message": "Story research complete. Waiting for a free image-generation worker..."}
-        image_bytes = generate_news_image(
-            title, article, summary, visual_brief=visual_brief[:2200]
-        )
-        encoded = base64.b64encode(image_bytes).decode("ascii")
-        with _image_studio_lock:
-            _image_studio_jobs[job_id] = {
-                "status": "done",
-                "message": "Image generated. Review it against the original story.",
-                "image": encoded,
-            }
-    except Exception as exc:
-        app.logger.exception("NayaDrishti Image Studio job failed: %s", job_id)
-        with _image_studio_lock:
-            _image_studio_jobs[job_id] = {
-                "status": "error",
-                "error": f"{type(exc).__name__}: {str(exc)[:260]}",
-            }
-
-
-@app.get("/image-studio")
-@login_required
-def image_studio():
-    return render_template("image_studio.html")
-
-
-@app.post("/image-studio/generate")
-@login_required
-def image_studio_generate():
-    payload = request.get_json(silent=True) or {}
-    title = str(payload.get("title") or "").strip()[:300]
-    article = str(payload.get("article") or "").strip()[:8000]
-    summary = str(payload.get("summary") or "").strip()[:800]
-    creative_prompt = str(payload.get("prompt") or "").strip()[:600]
-    style = str(payload.get("style") or "photorealistic").strip().lower()
-    if style not in ("photorealistic", "cinematic", "documentary", "3d", "illustration"):
-        style = "photorealistic"
-    if len(title) < 8:
-        return jsonify(error="Please enter a clear news headline."), 400
-    if len(article) < 100:
-        return jsonify(error="Please provide at least 100 characters of article facts so the image can match the story."), 400
-    with _image_studio_lock:
-        active = sum(1 for job in _image_studio_jobs.values() if job.get("status") == "running")
-        if active:
-            return jsonify(error="An image is already being generated. Please wait for it to finish."), 429
-        job_id = uuid.uuid4().hex
-        _image_studio_jobs[job_id] = {"status": "queued", "message": "Image request queued..."}
-        # Keep only the newest few jobs to limit memory use.
-        for old_id in list(_image_studio_jobs)[:-5]:
-            _image_studio_jobs.pop(old_id, None)
-    thread = threading.Thread(
-        target=_run_image_studio_job,
-        args=(job_id, title, article, summary, creative_prompt, style),
-        daemon=True,
-    )
+    thread = threading.Thread(target=_run_check, args=("manual",), daemon=True)
     thread.start()
-    return jsonify(job_id=job_id, status="queued"), 202
-
-
-@app.get("/image-studio/image/<job_id>")
-@login_required
-def image_studio_image(job_id):
-    with _image_studio_lock:
-        job = _image_studio_jobs.get(job_id)
-        encoded = job.get("image") if job and job.get("status") == "done" else None
-    if not encoded:
-        return jsonify(error="The generated image is not available. Please generate it again."), 404
-    image_bytes = base64.b64decode(encoded)
-    return send_file(io.BytesIO(image_bytes), mimetype="image/jpeg", as_attachment=False,
-                     download_name="nayadrishti-editorial-illustration.jpg", max_age=0)
-
-
-@app.get("/image-studio/download/<job_id>")
-@login_required
-def image_studio_download(job_id):
-    with _image_studio_lock:
-        job = _image_studio_jobs.get(job_id)
-        encoded = job.get("image") if job and job.get("status") == "done" else None
-    if not encoded:
-        return jsonify(error="The generated image is not available. Please generate it again."), 404
-    image_bytes = base64.b64decode(encoded)
-    return send_file(io.BytesIO(image_bytes), mimetype="image/jpeg", as_attachment=True,
-                     download_name="nayadrishti-editorial-illustration.jpg", max_age=0)
-
-
-@app.get("/image-studio/status/<job_id>")
-@login_required
-def image_studio_status(job_id):
-    with _image_studio_lock:
-        job = _image_studio_jobs.get(job_id)
-        if not job:
-            return jsonify(error="This image job is no longer available. Start a new request."), 404
-        return jsonify(job)
+    return jsonify(running=True, message="News check started."), 202
 
 
 if __name__ == "__main__":
