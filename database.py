@@ -229,4 +229,4 @@ def assess_cross_source_coverage(title, source, limit=500):
         return {"status": "matching_coverage", "count": count, "sources": ", ".join([source] + sources),
                 "note": "Similar headlines found from other publishers. This is corroborating coverage, not proof that every claim is correct."}
     return {"status": "single_source", "count": 1, "sources": source,
-            "note": "No sufficiently similar report from another publisher was found in the recent collected headlines."}
+            "note": "No sufficiently similar report from another publisher was found in the recent collected headlines. This is not proof that the story is false or verified."}

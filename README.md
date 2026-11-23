@@ -50,6 +50,9 @@ Required:
 
 Optional:
 - `GROQ_MODEL` (default: `openai/gpt-oss-120b`)
+- `GROQ_MAX_ARTICLE_CHARS` (default: 1200; maximum accepted: 2000)
+- `GROQ_MIN_REQUEST_INTERVAL_SECONDS` (default: 15; serializes requests to protect free-tier rate limits)
+- `MAX_AI_REQUESTS_PER_SCAN` (default: 3; maximum: 5; unprocessed stories remain eligible for later scans)
 - `NEWS_FEEDS`
 - `NEWS_MAX_AGE_HOURS` (default: 36; maximum accepted: 168)
 - `MAX_STORIES_PER_FEED` (default: 2; maximum accepted: 5)
@@ -74,6 +77,10 @@ Keep API keys, passwords, and access tokens in Render environment variables. Nev
 6. Only after the drafts are consistently accurate, set `ENABLE_FACEBOOK_PUBLISHING=true`.
 
 Facebook publishing uses the Page `/{page-id}/feed` endpoint and sends a text message only. The code defaults to publishing OFF.
+
+## AI reliability and request limits
+
+Groq requests are serialized, article context is bounded, and temporary rate-limit/server errors receive a small bounded retry. Each scan makes at most three AI requests by default. Stories that cannot be summarized are not marked as seen, so later scans can retry them. One story's summary error is recorded without aborting unrelated stories; a provider-wide rate-limit or oversized-request error stops further AI calls for that scan to avoid repeatedly hitting the same limit.
 
 ## Monitoring limits
 

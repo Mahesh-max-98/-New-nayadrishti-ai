@@ -1,6 +1,6 @@
 import unittest
 
-from ai_writer import prepare_news_post
+from ai_writer import _bounded_article_text, _post_to_groq, prepare_news_post
 
 
 class PrepareNewsPostTests(unittest.TestCase):
@@ -90,6 +90,35 @@ class PrepareNewsPostTests(unittest.TestCase):
         result = prepare_news_post(generated, "Onlinekhabar")
         self.assertNotIn("Onlinekhabar", result)
         self.assertEqual(len(result.splitlines()), 3)
+
+
+
+class GroqRequestResilienceTests(unittest.TestCase):
+    def test_article_context_is_bounded(self):
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"GROQ_MAX_ARTICLE_CHARS": "1200"}):
+            result = _bounded_article_text("क" * 5000)
+        self.assertEqual(len(result), 1200)
+
+    def test_temporary_rate_limit_is_retried(self):
+        from unittest.mock import Mock, patch
+        limited = Mock(ok=False, status_code=429, headers={"Retry-After": "0"}, text="rate limited")
+        success = Mock(ok=True, status_code=200, headers={}, text="")
+        with patch.dict("os.environ", {"GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0"}), \
+             patch("ai_writer.requests.post", side_effect=[limited, success]) as post, \
+             patch("ai_writer.time.sleep"):
+            response = _post_to_groq(headers={}, payload={}, timeout=1)
+        self.assertTrue(response.ok)
+        self.assertEqual(post.call_count, 2)
+
+    def test_permanent_client_error_is_not_retried(self):
+        from unittest.mock import Mock, patch
+        too_large = Mock(ok=False, status_code=413, headers={}, text="payload too large")
+        with patch.dict("os.environ", {"GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0"}), \
+             patch("ai_writer.requests.post", return_value=too_large) as post:
+            response = _post_to_groq(headers={}, payload={}, timeout=1)
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(post.call_count, 1)
 
 
 

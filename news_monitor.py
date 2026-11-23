@@ -292,6 +292,7 @@ def check_feeds(on_new_draft=None):
     result = {
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
         "drafts_saved": 0, "published": 0, "already_seen": 0, "breaking_candidates": 0, "errors": [],
+        "ai_requests": 0, "ai_writes": 0, "ai_limit_reached": False,
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
         "feed_details": [],
     }
@@ -301,14 +302,19 @@ def check_feeds(on_new_draft=None):
 
     per_feed_limit = max(1, min(int(os.getenv("MAX_STORIES_PER_FEED", "2")), 5))
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
+    ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "3")), 5))
+    stop_scan_for_ai = False
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
     for feed_name, feed_url in feeds:
+        if result["ai_requests"] >= ai_request_limit:
+            result["ai_limit_reached"] = True
+            break
         detail = {
             "source": feed_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
-            "fresh_candidates": 0, "error": None,
+            "fresh_candidates": 0, "error": None, "story_errors": 0,
             "priority": source_priority_label(feed_name),
         }
         try:
@@ -355,17 +361,35 @@ def check_feeds(on_new_draft=None):
                     result["already_seen"] += 1
                     continue
 
+                if result["ai_requests"] >= ai_request_limit:
+                    result["ai_limit_reached"] = True
+                    break
+
                 article_text = fetch_article_text(article_url, rss_description)
                 if len(article_text) < 80:
                     log.info("Skipping story with too little source text: %s", title)
                     continue
 
-                post_text = write_summary(
-                    title=title,
-                    description=article_text,
-                    source_name=publisher,
-                    article_url=article_url,
-                )
+                result["ai_requests"] += 1
+                try:
+                    post_text = write_summary(
+                        title=title,
+                        description=article_text,
+                        source_name=publisher,
+                        article_url=article_url,
+                    )
+                    result["ai_writes"] += 1
+                except Exception as exc:
+                    detail["story_errors"] += 1
+                    result["errors"].append(
+                        f"{publisher} summary failed: {type(exc).__name__}: {str(exc)[:140]}"
+                    )
+                    log.warning("AI summary failed for %s (%s): %s", publisher, title[:100], exc)
+                    if "Groq API error 429" in str(exc) or "Groq API error 413" in str(exc):
+                        stop_scan_for_ai = True
+                        break
+                    continue
+
                 verification = assess_cross_source_coverage(title, publisher)
                 category = classify_story(title, article_text)[0]
                 is_breaking, breaking_reason = detect_breaking_news(
@@ -410,6 +434,8 @@ def check_feeds(on_new_draft=None):
             result["errors"].append(f"{feed_name}: {detail['error']}")
         finally:
             result["feed_details"].append(detail)
+        if stop_scan_for_ai:
+            break
 
     result["facebook_publishing_enabled"] = (
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true"
