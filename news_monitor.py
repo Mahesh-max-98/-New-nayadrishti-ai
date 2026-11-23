@@ -13,6 +13,7 @@ import requests
 
 from ai_writer import write_summary
 from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status
+from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text
 
 log = logging.getLogger("nayadrishti")
@@ -302,15 +303,18 @@ def check_feeds(on_new_draft=None):
 
     per_feed_limit = max(1, min(int(os.getenv("MAX_STORIES_PER_FEED", "2")), 5))
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
-    ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "3")), 5))
-    stop_scan_for_ai = False
+    ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "5")), 5))
+    usage_at_start = get_groq_usage_status()
+    ai_paused_for_scan = bool(usage_at_start["paused"] or not usage_at_start["requests_remaining"] or not usage_at_start["tokens_remaining"] or not usage_at_start["posts_remaining"])
+    if ai_paused_for_scan:
+        result["ai_budget_paused"] = True
+        result["ai_budget_reason"] = usage_at_start.get("pause_reason") or "Daily NayaDrishti safety budget reached."
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
     for feed_name, feed_url in feeds:
         if result["ai_requests"] >= ai_request_limit:
             result["ai_limit_reached"] = True
-            break
         detail = {
             "source": feed_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
@@ -355,15 +359,16 @@ def check_feeds(on_new_draft=None):
                 if not title:
                     continue
 
+                if result["ai_requests"] >= ai_request_limit or ai_paused_for_scan:
+                    if result["ai_requests"] >= ai_request_limit:
+                        result["ai_limit_reached"] = True
+                    continue
+
                 item_id = hashlib.sha256((publisher.lower() + "|" + article_url).encode("utf-8")).hexdigest()
                 if already_seen(item_id) or already_seen_title(title) or already_seen_story(title, article_url):
                     detail["already_seen"] += 1
                     result["already_seen"] += 1
                     continue
-
-                if result["ai_requests"] >= ai_request_limit:
-                    result["ai_limit_reached"] = True
-                    break
 
                 article_text = fetch_article_text(article_url, rss_description)
                 if len(article_text) < 80:
@@ -385,9 +390,14 @@ def check_feeds(on_new_draft=None):
                         f"{publisher} summary failed: {type(exc).__name__}: {str(exc)[:140]}"
                     )
                     log.warning("AI summary failed for %s (%s): %s", publisher, title[:100], exc)
-                    if "Groq API error 429" in str(exc) or "Groq API error 413" in str(exc):
-                        stop_scan_for_ai = True
-                        break
+                    if "GROQ_BUDGET_PAUSED" in str(exc):
+                        result["ai_requests"] = max(0, result["ai_requests"] - 1)
+                        ai_paused_for_scan = True
+                        result["ai_budget_paused"] = True
+                        result["ai_budget_reason"] = str(exc)[:220]
+                    elif "Groq API error 429" in str(exc) or "Groq API error 413" in str(exc):
+                        ai_paused_for_scan = True
+                        result["ai_provider_paused"] = True
                     continue
 
                 verification = assess_cross_source_coverage(title, publisher)
@@ -434,9 +444,8 @@ def check_feeds(on_new_draft=None):
             result["errors"].append(f"{feed_name}: {detail['error']}")
         finally:
             result["feed_details"].append(detail)
-        if stop_scan_for_ai:
-            break
 
+    result["groq_usage"] = get_groq_usage_status()
     result["facebook_publishing_enabled"] = (
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true"
     )
