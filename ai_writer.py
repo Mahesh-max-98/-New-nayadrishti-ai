@@ -67,8 +67,8 @@ def write_summary(title, description, source_name, article_url):
     # Normalize the final credit so every post identifies the original source.
     credit = f"स्रोत: {source_name}"
     lines = [line for line in lines if not line.lower().startswith(("स्रोत:", "source:"))]
-    if not lines:
-        raise RuntimeError("Groq returned an empty Nepali news post.")
+    if len(lines) < 2:
+        raise RuntimeError("Groq returned too little detail for a 3-line news post.")
     lines = lines[:7]
     lines.append(credit)
     return "\n".join(lines[:8])
