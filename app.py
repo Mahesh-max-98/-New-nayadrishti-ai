@@ -162,7 +162,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 </form>
 <p class="small">Breaking labels are automatic signals based on urgent wording, source priority and a recent publication time. They are not confirmation; check the original article.</p>
 {% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
-{% for d in drafts %}<article class="draft">{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
+{% for d in drafts %}<article class="draft">{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span><p class="small">{{ d.breaking_reason }}</p>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
 <p class="small">Source: {{ d.source or "Original publisher" }}</p>
 <p class="small"><strong>Coverage check:</strong>
 {% if d.verification_status == "matching_coverage" %}Similar reports found from {{ d.verification_count }} publishers.
@@ -231,6 +231,7 @@ async function runCheck(){
       'Sources checked: '+(data.feeds_checked||0)+' / '+(data.feeds_configured||0),
       'Fresh stories found: '+(data.fresh_candidates||0),
       'New drafts saved: '+(data.drafts_saved||0),
+      'Potential breaking candidates: '+(data.breaking_candidates||0),
       'Already seen: '+(data.already_seen||0),
       'Facebook posts published: '+(data.published||0)
      ];
