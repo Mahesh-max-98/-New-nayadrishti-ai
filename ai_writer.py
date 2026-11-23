@@ -1,10 +1,67 @@
 import os
 import re
+import threading
+import time
 from difflib import SequenceMatcher
 
 import requests
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+_GROQ_REQUEST_LOCK = threading.Lock()
+_LAST_GROQ_REQUEST_AT = 0.0
+MAX_ARTICLE_CHARS = 1200
+
+
+def _bounded_article_text(description):
+    """Keep article context small enough for the free-tier token budget."""
+    try:
+        limit = int(os.getenv("GROQ_MAX_ARTICLE_CHARS", str(MAX_ARTICLE_CHARS)))
+    except (TypeError, ValueError):
+        limit = MAX_ARTICLE_CHARS
+    limit = max(500, min(limit, 2000))
+    return re.sub(r"\\s+", " ", description or "").strip()[:limit]
+
+
+def _post_to_groq(headers, payload, timeout=45):
+    """Serialize Groq calls and retry only temporary provider/rate-limit failures."""
+    global _LAST_GROQ_REQUEST_AT
+    transient_statuses = {429, 500, 502, 503, 504}
+    response = None
+    with _GROQ_REQUEST_LOCK:
+        for attempt in range(3):
+            try:
+                interval = float(os.getenv("GROQ_MIN_REQUEST_INTERVAL_SECONDS", "15"))
+            except (TypeError, ValueError):
+                interval = 15.0
+            interval = max(0.0, min(interval, 60.0))
+            wait_for_slot = interval - (time.monotonic() - _LAST_GROQ_REQUEST_AT)
+            if _LAST_GROQ_REQUEST_AT and wait_for_slot > 0:
+                time.sleep(wait_for_slot)
+
+            response = requests.post(
+                GROQ_URL, headers=headers, json=payload, timeout=timeout
+            )
+            _LAST_GROQ_REQUEST_AT = time.monotonic()
+            if response.ok or response.status_code not in transient_statuses or attempt == 2:
+                return response
+
+            retry_delay = None
+            retry_after = getattr(response, "headers", {}).get("Retry-After")
+            if retry_after:
+                try:
+                    retry_delay = float(retry_after)
+                except (TypeError, ValueError):
+                    retry_delay = None
+            if retry_delay is None:
+                match = re.search(
+                    r"try again in ([0-9.]+)s",
+                    getattr(response, "text", ""),
+                    re.IGNORECASE,
+                )
+                retry_delay = float(match.group(1)) if match else 2 ** attempt
+            time.sleep(max(1.0, min(retry_delay, 8.0)))
+    return response
 
 _SOURCE_CREDIT_RE = re.compile(
     r"^(?:स्रोत|श्रोत|source|credit|courtesy|via|साभार)\b", re.IGNORECASE
@@ -89,7 +146,7 @@ def write_summary(title, description, source_name, article_url):
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
-    article_text = re.sub(r"\s+", " ", description or "").strip()[:7000]
+    article_text = _bounded_article_text(description)
     if len(article_text) < 80:
         raise ValueError(
             "The source article does not contain enough readable information for a reliable news post."
@@ -134,10 +191,9 @@ def write_summary(title, description, source_name, article_url):
 {article_text}
 <<<END_UNTRUSTED_ARTICLE_TEXT>>>
 """
-    response = requests.post(
-        GROQ_URL,
+    response = _post_to_groq(
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
+        payload={
             "model": model,
             "messages": [
                 {
@@ -152,7 +208,7 @@ def write_summary(title, description, source_name, article_url):
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.15,
-            "max_completion_tokens": 550,
+            "max_completion_tokens": 400,
         },
         timeout=45,
     )
