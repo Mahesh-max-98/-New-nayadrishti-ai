@@ -205,6 +205,7 @@ async function runCheck(){
    if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';await new Promise(resolve=>setTimeout(resolve,2500));return poll();}
    if(state.finished){
     const data=state.result||{};
+    renderFeedHealth(data);
     const status=document.getElementById('monitoring-status');
     status.textContent='Last check completed · '+(state.trigger||'unknown')+' run';
     if(state.error)out.textContent='Check failed: '+state.error;
@@ -235,6 +236,7 @@ window.addEventListener('load',async()=>{
  try{
   const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
   const state=await response.json(); seenDrafts=Number(state.new_drafts||0);
+  if(state.finished&&state.result)renderFeedHealth(state.result);
   if(state.running)el.textContent='Automatic news check is running.';
   else if(state.finished)el.textContent='Latest check completed. Waiting for the next automatic check.';
   else el.textContent='Automatic monitoring is ready.';
@@ -244,6 +246,7 @@ window.addEventListener('load',async()=>{
    const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
    if(!response.ok)return;
    const state=await response.json();
+   if(state.finished&&state.result)renderFeedHealth(state.result);
    if(state.running)el.textContent='Automatically checking news sources...';
    if(Number(state.new_drafts||0)>seenDrafts){
     el.textContent='New news draft found. Updating dashboard...';
