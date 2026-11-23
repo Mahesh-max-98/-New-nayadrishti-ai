@@ -52,7 +52,7 @@ def prepare_news_post(content, source_name=""):
             lines.append(line)
 
     if not 3 <= len(lines) <= 6:
-        raise RuntimeError("Generated news post must contain a headline and 2 to 5 useful body lines.")
+        raise RuntimeError("Generated news post must contain 3 to 6 lines: one headline and 2 to 5 useful body lines.")
     headline = lines[0]
     if not 8 <= len(headline) <= 110:
         raise RuntimeError("News headline must be clear and between 8 and 110 characters.")
