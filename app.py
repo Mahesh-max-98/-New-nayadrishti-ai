@@ -144,13 +144,13 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}.draft img{width:10
 <section class="panel"><h2>Creative tools</h2><p>Generate a separate, story-matched editorial illustration.</p><p><a href="/image-studio">Open NayaDrishti AI Image Studio →</a></p></section>
 <section class="panel"><h2>Publishing status</h2>
 <p>Facebook auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
-<p class="small">Do not enable until you have reviewed generated text and images.</p></section>
+<p class="small">Review generated Nepali text and its source link before enabling publishing.</p></section>
 <section><div class="top"><h2>Generated text-only news drafts</h2><span class="small">{{ drafts|length }} shown</span></div>
 {% for d in drafts %}<article class="draft"><h3 class="post-headline">{{ d.summary }}</h3>
 {% if d.has_image %}<img src="/draft-image/{{ d.item_id }}" alt="NayaDrishti editorial news graphic">
 <button type="button" onclick="refreshStoryImage('{{ d.item_id }}', this)">Regenerate story-matched image</button><span class="small">Replaces this saved image with a new image generated from the article headline and facts.</span>
 {% else %}<p class="danger">Text-only news draft — ready for review.</p>{% if d.image_error %}<p class="small danger">Image error: {{ d.image_error }}</p>{% else %}<p class="small">No image is required for this news post.</p>{% endif %}{% endif %}
-<div class="small">Image style: {{ 'Publisher photo' if d.image_status == 'publisher_photo' else ('AI illustration' if d.image_status == 'ai_illustration' else ('Branded fallback graphic (not a photograph)' if d.image_status == 'fallback_graphic' else (d.image_status or 'pending'))) }}</div>
+<div class="small">Post type: {{ 'Text only' if d.image_status == 'text_only' else (d.image_status or 'pending') }}</div>
 <a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Open original source</a></article>
 {% else %}<div class="panel">No drafts yet. Add valid RSS/Atom feed URLs in Render, then run a feed check.</div>{% endfor %}
 </section>{% endif %}</main>
@@ -174,7 +174,7 @@ async function refreshStoryImage(itemId,button){
  }catch(error){button.disabled=false;button.textContent='Regenerate story-matched image';alert('Could not regenerate image: '+error.message);}
 }
 async function runCheck(){const b=document.getElementById('check'),out=document.getElementById('result');
-b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News and images are being processed in the background.';
+b.disabled=true;b.textContent='Checking...';out.textContent='Feed check started. News is being checked and Nepali text drafts are being prepared.';
 try{const r=await fetch('/run-check',{method:'POST',headers:{'Accept':'application/json'}});const data=await r.json();
 if(!r.ok){out.textContent='Request failed (HTTP '+r.status+'): '+JSON.stringify(data,null,2);b.disabled=false;b.textContent='Run a feed check';return;}
 const poll=async()=>{try{const s=await fetch('/run-check',{headers:{'Accept':'application/json'}});const state=await s.json();
