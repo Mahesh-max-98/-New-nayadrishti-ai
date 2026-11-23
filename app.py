@@ -154,10 +154,17 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on.</p></section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
-<p class="small">Review each Nepali post before using it. Approve marks it reviewed only; it does not publish to Facebook.</p>
+<p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
 {% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
 {% for d in drafts %}<article class="draft"><h3>{{ d.summary }}</h3>
 <p class="small">Source: {{ d.source or "Original publisher" }}</p>
+<p class="small"><strong>Coverage check:</strong>
+{% if d.verification_status == "matching_coverage" %}Similar reports found from {{ d.verification_count }} publishers.
+{% elif d.verification_status == "needs_comparison" %}Needs manual comparison — reports contain different numbers.
+{% else %}Only one matching publisher report found.
+{% endif %}
+{{ d.verification_note }}</p>
+{% if d.verification_sources %}<p class="small">Compared publishers: {{ d.verification_sources }}</p>{% endif %}
 {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Read original report</a>{% endif %}
 <div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
 </article>
