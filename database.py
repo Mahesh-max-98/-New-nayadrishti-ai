@@ -56,6 +56,9 @@ def init_db():
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_count INTEGER DEFAULT 1")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_sources TEXT DEFAULT ''")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_note TEXT DEFAULT 'Only one matching publisher report was found.'")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'अन्य'")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS is_breaking BOOLEAN DEFAULT FALSE")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS breaking_reason TEXT DEFAULT ''")
 
 
 def already_seen(item_id):
@@ -85,15 +88,16 @@ def remember(item_id, title, source, url, status="seen"):
         """, (item_id, title, source, url, status))
 
 
-def save_draft(item_id, title, source, url, summary, language="ne", verification=None):
+def save_draft(item_id, title, source, url, summary, language="ne", verification=None, category="अन्य", is_breaking=False, breaking_reason=""):
     verification = verification or {}
     with connection() as db:
         db.execute("""
             INSERT INTO drafts (
                 item_id, title, source, url, summary, language, status,
-                verification_status, verification_count, verification_sources, verification_note
+                verification_status, verification_count, verification_sources, verification_note,
+                category, is_breaking, breaking_reason
             )
-            VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(item_id) DO NOTHING
         """, (
             item_id, title, source, url, summary, language,
@@ -101,16 +105,17 @@ def save_draft(item_id, title, source, url, summary, language="ne", verification
             verification.get("count", 1),
             verification.get("sources", source),
             verification.get("note", "Only one matching publisher report was found."),
+            category, bool(is_breaking), breaking_reason,
         ))
 
 
 def get_drafts(limit=50):
     with connection() as db:
         rows = db.execute("""
-            SELECT item_id, title, source, url, summary, language, status, created_at, verification_status, verification_count, verification_sources, verification_note
+            SELECT item_id, title, source, url, summary, language, status, created_at, verification_status, verification_count, verification_sources, verification_note, category, is_breaking, breaking_reason
             FROM drafts
             WHERE status='draft'
-            ORDER BY created_at DESC
+            ORDER BY is_breaking DESC, created_at DESC
             LIMIT %s
         """, (limit,)).fetchall()
         return [dict(row) for row in rows]
