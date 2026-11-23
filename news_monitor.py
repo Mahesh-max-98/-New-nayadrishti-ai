@@ -24,6 +24,7 @@ DIRECT_NEWS_FEEDS = [
     ("Onlinekhabar", "https://www.onlinekhabar.com/feed"),
     ("Setopati", "https://www.setopati.com/feed"),
     ("Ratopati", "https://www.ratopati.com/feed"),
+    ("Nagarik News", "https://nagariknews.nagariknetwork.com/feed"),
 ]
 
 GOOGLE_NEWS_QUERIES = [
@@ -31,6 +32,10 @@ GOOGLE_NEWS_QUERIES = [
     ("Google News - Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d'),
     ("Google News - BBC Nepali", 'site:bbc.com/nepali when:1d'),
     ("Google News - Onlinekhabar", 'site:onlinekhabar.com when:1d'),
+    ("Google News - Kantipur/eKantipur", 'site:ekantipur.com when:1d'),
+    ("Google News - Annapurna Post", 'site:annapurnapost.com when:1d'),
+    ("Google News - Gorkhapatra", 'site:gorkhapatraonline.com when:1d'),
+    ("Google News - Ujyaalo Online", 'site:ujyaaloonline.com when:1d'),
     ("Google News - Setopati", 'site:setopati.com when:1d'),
     ("Google News - Ratopati", 'site:ratopati.com when:1d'),
     ("Google News - Thaha Khabar", 'site:thahakhabar.com when:1d'),
@@ -48,6 +53,8 @@ def configured_feeds():
     allowed = (
         "neb", "routine of nepal banda", "ronb", "troll cricket",
         "bbc nepali", "onlinekhabar", "setopati", "ratopati",
+        "kantipur", "ekantipur", "annapurna", "nagarik", "gorkhapatra",
+        "ujyaalo", "ujyalo",
         "thaha khabar", "nepal samaya", "ok khabar", "okkhabar",
         "laligurash", "laligurash media",
     )
