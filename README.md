@@ -1,65 +1,45 @@
 # NayaDrishti AI
 
-NayaDrishti AI is a mobile-friendly Flask dashboard for reading configured RSS/Atom feeds, creating concise Nepali-first/English-second news drafts with Groq, preventing duplicate processing, and optionally publishing text posts to the owner's Facebook Page.
+NayaDrishti AI is a mobile-friendly Flask dashboard that monitors news feeds, writes short Nepali-only news posts with Groq, stores drafts in PostgreSQL, prevents duplicates, and can publish text-only posts to a Facebook Page.
 
-## Current features
+## News post format
+- 3–8 lines in Nepali: headline, factual summary, and original publisher credit.
+- No generated images, publisher photos, image attachments, or photo posts in the automatic news workflow.
+- Stories older than 24 hours or without a publication timestamp are skipped.
+- Duplicate stories are not processed again.
+- The separate, manually opened Image Studio remains optional; automatic news monitoring does not call it.
 
-- Groq-powered bilingual short news drafts.
-- RSS/Atom feed reader with request timeouts.
-- Duplicate detection using PostgreSQL.
-- Android-friendly admin dashboard with a visible **Run a feed check** button.
-- Admin password login.
-- Facebook text publishing integration, OFF unless explicitly enabled.
-- Health endpoint at `/health`.
+## Sources
+The built-in Google News RSS discovery queries look for NEB notices/results, Routine of Nepal Banda (RONB), BBC Nepali, Onlinekhabar, OK Khabar, Laligurash Media Network, and Troll Cricket Nepal.
 
-## Important source and copyright rules
+Google News RSS is a discovery index, not direct access to or endorsement by those publishers. The original publisher is identified from the result headline when available and credited in the generated post. Facebook pages are not scraped. To monitor a publisher directly, configure an official public RSS/Atom feed or an authorized API.
 
-Only add official RSS/Atom feeds or feeds you are authorized to access. A Facebook Page URL is not an RSS feed, and this app does not scrape Facebook pages. Do not copy complete articles or reuse photos without permission. Each generated draft includes source attribution and a link to the original source. AI summaries must be checked against the original reporting before publication.
+Additional feeds can be configured with NEWS_FEEDS using pipe-separated source/feed pairs, for example:
 
-The requested sources (NEB NEWS AND RESULT, TROLL CRICKET NEPAL, and Routine of Nepal Banda) must be connected using valid RSS/Atom feed URLs or authorized APIs. Do not put their ordinary Facebook page URLs into `NEWS_FEEDS`.
+    NEWS_FEEDS=Publisher Name=https://publisher.example/rss.xml|Another Publisher=https://another.example/feed
 
 ## Render environment variables
+Required: ADMIN_PASSWORD, FLASK_SECRET_KEY, DATABASE_URL, GROQ_API_KEY.
 
-Required:
-- `ADMIN_PASSWORD`: dashboard login password.
-- `FLASK_SECRET_KEY`: long random secret used to sign the login session.
-- `DATABASE_URL`: PostgreSQL connection URL.
-- `GROQ_API_KEY`: Groq API key.
-- `GROQ_MODEL`: model name enabled for your Groq account.
-- `NEWS_FEEDS`: pipe-separated source/feed pairs.
-
-Optional:
-- `ENABLE_FACEBOOK_PUBLISHING`: keep `false` while testing; set to `true` only after drafts and Page permissions are verified.
-- `FB_PAGE_ID`, `FB_PAGE_ACCESS_TOKEN`, `FB_GRAPH_VERSION`: Facebook Page publishing settings.
-- `COOKIE_SECURE`: use `true` on HTTPS hosting.
-- `LOG_LEVEL`: defaults to INFO.
-
-Example feed format (replace with actual authorized feed URLs):
-```
-NEWS_FEEDS=Example Source=https://example.com/rss.xml|Another Source=https://example.org/feed
-```
+Optional: GROQ_MODEL (defaults to openai/gpt-oss-120b), NEWS_FEEDS, ENABLE_FACEBOOK_PUBLISHING, FB_PAGE_ID, FB_PAGE_ACCESS_TOKEN, FB_GRAPH_VERSION, COOKIE_SECURE, LOG_LEVEL.
 
 Never put API keys, passwords, or access tokens in GitHub. Store them only in Render environment variables. Do not send them in chat or screenshots.
 
-## Deploy
+## Run and review
+1. Deploy this branch to the Render service.
+2. Set the required environment variables in Render.
+3. Keep ENABLE_FACEBOOK_PUBLISHING=false initially.
+4. Sign in to the dashboard and press Run a feed check.
+5. Review generated Nepali drafts against their original source links.
+6. After several accurate tests, configure the Facebook Page ID/token and enable text publishing.
 
-The included Render configuration deploys the web dashboard. Render should redeploy after a commit to the connected GitHub branch.
+Facebook publishing uses the Page feed endpoint and publishes text only. Publishing is disabled by default.
 
-Open the service URL, sign in with `ADMIN_PASSWORD`, and press **Run a feed check**. The response shows configured feeds, checked feeds, drafts, duplicates, publication count, and errors.
-
-## One-minute monitoring
-
-`worker.py` can run the feed checker on a 60-second schedule, but it must be deployed as a separate always-on background worker. Free web services may sleep and do not guarantee one-minute background execution. Check the hosting plan and costs before enabling a worker.
-
-## Facebook publishing
-
-Publishing is disabled by default. First verify feed parsing and generated drafts. Then verify that the Page access token has the required Meta permissions. Only enable direct publishing after you have reviewed multiple drafts and confirmed they are accurate. This application currently publishes text/link posts; image-card generation is not included in this rebuild yet.
+## Monitoring
+The web dashboard's background checks run only while the Render web service is awake. A free Render web service may sleep and does not guarantee continuous monitoring. For dependable scheduled monitoring, use an appropriately configured always-on worker or scheduler and check the hosting plan/cost first.
 
 ## Local run
+    pip install -r requirements.txt
+    python app.py
 
-```bash
-pip install -r requirements.txt
-python app.py
-```
-
-The background worker can be started separately with `python worker.py` when a suitable always-on environment is available.
+The background worker can be started separately with python worker.py when a suitable always-on environment is available.
