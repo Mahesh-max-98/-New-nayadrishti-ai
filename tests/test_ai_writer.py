@@ -85,7 +85,7 @@ class NewsDiscoveryRankingTests(unittest.TestCase):
     def test_story_priority_prefers_higher_priority_source(self):
         from news_monitor import _story_priority
         item = {
-            "title": "सरकारले नयाँ बजेट सार्वजनिक गर्‍यो - Kantipur",
+            "title": "सरकारले नयाँ बजेट सार्वजनिक गर्‍यो",
             "summary": "अर्थतन्त्र र बजेटसम्बन्धी समाचार",
             "published_parsed": None,
         }
