@@ -359,15 +359,15 @@ def check_feeds(on_new_draft=None):
                 if not title:
                     continue
 
+                if result["ai_requests"] >= ai_request_limit or ai_paused_for_scan:
+                    if result["ai_requests"] >= ai_request_limit:
+                        result["ai_limit_reached"] = True
+                    continue
+
                 item_id = hashlib.sha256((publisher.lower() + "|" + article_url).encode("utf-8")).hexdigest()
                 if already_seen(item_id) or already_seen_title(title) or already_seen_story(title, article_url):
                     detail["already_seen"] += 1
                     result["already_seen"] += 1
-                    continue
-
-                if result["ai_requests"] >= ai_request_limit or ai_paused_for_scan:
-                    if result["ai_requests"] >= ai_request_limit:
-                        result["ai_limit_reached"] = True
                     continue
 
                 article_text = fetch_article_text(article_url, rss_description)
