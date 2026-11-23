@@ -4,8 +4,9 @@ NayaDrishti AI is a text-only Nepali news collection and Facebook publishing das
 
 ## What it does
 
-1. Reads configured RSS/Atom feeds and Google News RSS discovery feeds.
-2. Sorts entries by publication date and skips undated or stale items.
+1. Reads direct public RSS/Atom feeds from Onlinekhabar, Setopati, and Ratopati, plus configured feeds and Google News discovery feeds.
+2. Uses Google News discovery for RONB, Troll Cricket Nepal, BBC Nepali, OK Khabar, Laligurash Media Network, NEB, Thaha Khabar, Nepal Samaya, and other supported publishers.
+3. Sorts entries by publication date and skips undated or stale items.
 3. Opens the original article where accessible and prefers its text over a short RSS teaser.
 4. Checks item links and normalized headlines against previously seen stories.
 5. Uses Groq to write a clear 4–7 line Nepali Facebook post.
@@ -16,11 +17,17 @@ There is no Image Studio, image-generation route, image attachment, publisher-ph
 
 ## News discovery sources
 
-Built-in Google News RSS queries cover:
+Direct public RSS feeds are included for:
+- Onlinekhabar — https://www.onlinekhabar.com/feed
+- Setopati — https://www.setopati.com/feed
+- Ratopati — https://www.ratopati.com/feed
+
+Built-in Google News RSS discovery queries cover:
 - Routine of Nepal Banda (RONB)
 - Troll Cricket Nepal
 - BBC Nepali
-- Onlinekhabar
+- Onlinekhabar, Setopati, and Ratopati
+- Thaha Khabar and Nepal Samaya
 - OK Khabar
 - Laligurash Media Network
 - National Examinations Board (NEB)
