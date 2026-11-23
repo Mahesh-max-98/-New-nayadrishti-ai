@@ -68,6 +68,28 @@ TOPIC_KEYWORDS = {
 }
 
 
+BREAKING_KEYWORDS = (
+    "भूकम्प", "बाढी", "पहिरो", "आगलागी", "दुर्घटना", "विस्फोट",
+    "आपत्कालीन", "आपतकाल", "आकस्मिक", "तत्काल", "बेपत्ता", "उद्धार",
+    "राजीनामा", "युद्ध", "आक्रमण", "earthquake", "flood", "landslide",
+    "fire", "accident", "explosion", "emergency", "breaking", "resigns",
+    "missing", "rescue", "attack",
+)
+
+
+def detect_breaking_news(title, description="", source_name="", published_timestamp=None, now=None):
+    """Conservative heuristic: fresh urgent wording from a higher-priority source."""
+    combined = (str(title or "") + " " + str(description or "")).casefold()
+    matched = [word for word in BREAKING_KEYWORDS if word.casefold() in combined]
+    if not matched or source_priority(source_name) < 85 or published_timestamp is None:
+        return False, ""
+    current_time = float(now if now is not None else datetime.now(timezone.utc).timestamp())
+    age_seconds = current_time - float(published_timestamp)
+    if age_seconds < 0 or age_seconds > 2 * 3600:
+        return False, ""
+    return True, "Urgent keyword and publication within the last 2 hours; verify the original report."
+
+
 def source_priority(source_name):
     """Return the highest configured editorial priority matching a publisher/feed."""
     normalized = clean_text(source_name, 200).casefold()
@@ -269,7 +291,7 @@ def check_feeds(on_new_draft=None):
     feeds = configured_feeds()
     result = {
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
-        "drafts_saved": 0, "published": 0, "already_seen": 0, "errors": [],
+        "drafts_saved": 0, "published": 0, "already_seen": 0, "breaking_candidates": 0, "errors": [],
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
         "feed_details": [],
     }
@@ -345,9 +367,16 @@ def check_feeds(on_new_draft=None):
                     article_url=article_url,
                 )
                 verification = assess_cross_source_coverage(title, publisher)
+                category = classify_story(title, article_text)[0]
+                is_breaking, breaking_reason = detect_breaking_news(
+                    title, article_text, publisher, _entry_timestamp(entry)
+                )
+                if is_breaking:
+                    result["breaking_candidates"] += 1
                 save_draft(
                     item_id, title, publisher, article_url, post_text,
-                    language="ne", verification=verification,
+                    language="ne", verification=verification, category=category,
+                    is_breaking=is_breaking, breaking_reason=breaking_reason,
                 )
                 result["drafts_saved"] += 1
                 if on_new_draft:
