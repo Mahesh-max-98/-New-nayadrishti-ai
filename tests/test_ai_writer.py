@@ -94,5 +94,43 @@ class NewsDiscoveryRankingTests(unittest.TestCase):
         self.assertGreater(established[0], community[0])
 
 
+
+class CrossSourceCoverageTests(unittest.TestCase):
+    def assess(self, title, rows):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        import database
+
+        class FakeResult:
+            def fetchall(self):
+                return rows
+
+        class FakeConnection:
+            def execute(self, *args, **kwargs):
+                return FakeResult()
+
+        with patch.object(database, "connection", return_value=nullcontext(FakeConnection())):
+            return database.assess_cross_source_coverage(title, "Kantipur")
+
+    def test_similar_independent_headline_is_flagged_as_matching_coverage(self):
+        result = self.assess(
+            "सरकारले नयाँ बजेट सार्वजनिक गर्‍यो",
+            [{"title": "नयाँ बजेट सरकारले सार्वजनिक गर्‍यो", "source": "Onlinekhabar"}],
+        )
+        self.assertEqual(result["status"], "matching_coverage")
+        self.assertEqual(result["count"], 2)
+
+    def test_numeric_difference_is_flagged_for_manual_comparison(self):
+        result = self.assess(
+            "सरकारले २० करोड बजेट सार्वजनिक गर्‍यो",
+            [{"title": "सरकारले ३० करोड बजेट सार्वजनिक गर्‍यो", "source": "Onlinekhabar"}],
+        )
+        self.assertEqual(result["status"], "needs_comparison")
+
+    def test_single_source_is_not_marked_verified(self):
+        result = self.assess("नयाँ विद्यालय भवन उद्घाटन", [])
+        self.assertEqual(result["status"], "single_source")
+        self.assertIn("not proof", result["note"])
+
 if __name__ == "__main__":
     unittest.main()

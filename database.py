@@ -52,6 +52,10 @@ def init_db():
         db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_status")
         db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_error")
         db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_last_attempt")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'single_source'")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_count INTEGER DEFAULT 1")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_sources TEXT DEFAULT ''")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_note TEXT DEFAULT 'Only one matching publisher report was found.'")
 
 
 def already_seen(item_id):
@@ -81,19 +85,29 @@ def remember(item_id, title, source, url, status="seen"):
         """, (item_id, title, source, url, status))
 
 
-def save_draft(item_id, title, source, url, summary, language="ne"):
+def save_draft(item_id, title, source, url, summary, language="ne", verification=None):
+    verification = verification or {}
     with connection() as db:
         db.execute("""
-            INSERT INTO drafts (item_id, title, source, url, summary, language, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'draft')
+            INSERT INTO drafts (
+                item_id, title, source, url, summary, language, status,
+                verification_status, verification_count, verification_sources, verification_note
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s)
             ON CONFLICT(item_id) DO NOTHING
-        """, (item_id, title, source, url, summary, language))
+        """, (
+            item_id, title, source, url, summary, language,
+            verification.get("status", "single_source"),
+            verification.get("count", 1),
+            verification.get("sources", source),
+            verification.get("note", "Only one matching publisher report was found."),
+        ))
 
 
 def get_drafts(limit=50):
     with connection() as db:
         rows = db.execute("""
-            SELECT item_id, title, source, url, summary, language, status, created_at
+            SELECT item_id, title, source, url, summary, language, status, created_at, verification_status, verification_count, verification_sources, verification_note
             FROM drafts
             WHERE status='draft'
             ORDER BY created_at DESC
@@ -159,3 +173,55 @@ def already_seen_story(title, url, similarity_threshold=0.90):
             if SequenceMatcher(None, normalized_title, previous_title).ratio() >= similarity_threshold:
                 return True
     return False
+
+
+def assess_cross_source_coverage(title, source, limit=500):
+    """Find similar recent headlines from distinct publishers; this is not fact-checking."""
+    import re
+    from difflib import SequenceMatcher
+
+    def tokens(value):
+        return {token for token in re.findall(r"[\w]+", (value or "").casefold(), flags=re.UNICODE) if len(token) >= 3}
+
+    current = tokens(title)
+    if not current:
+        return {"status": "single_source", "count": 1, "sources": source,
+                "note": "No comparable headline terms were available; only this report is counted."}
+
+    with connection() as db:
+        rows = db.execute("""
+            SELECT title, source FROM seen_items
+            WHERE lower(coalesce(source, '')) <> lower(%s)
+            ORDER BY created_at DESC LIMIT %s
+        """, (source or "", limit)).fetchall()
+
+    matches = {}
+    numeric_pattern = re.compile(r"\d+(?:[.,]\d+)?")
+    current_numbers = set(numeric_pattern.findall(title or ""))
+    possible_conflict = False
+    for row in rows:
+        other_title = row.get("title") or ""
+        other_source = (row.get("source") or "").strip()
+        if not other_source or other_source.casefold() == (source or "").casefold():
+            continue
+        other = tokens(other_title)
+        if not other:
+            continue
+        overlap = len(current & other) / max(1, len(current | other))
+        similarity = SequenceMatcher(None, " ".join(sorted(current)), " ".join(sorted(other))).ratio()
+        if overlap >= 0.35 or similarity >= 0.68:
+            other_numbers = set(numeric_pattern.findall(other_title))
+            if current_numbers and other_numbers and current_numbers != other_numbers:
+                possible_conflict = True
+            matches[other_source] = other_title
+
+    sources = sorted(matches)
+    count = 1 + len(sources)
+    if possible_conflict:
+        return {"status": "needs_comparison", "count": count, "sources": ", ".join([source] + sources),
+                "note": "Similar headlines contain different numeric details. Compare original reports manually; no conclusion has been drawn."}
+    if sources:
+        return {"status": "matching_coverage", "count": count, "sources": ", ".join([source] + sources),
+                "note": "Similar headlines found from other publishers. This is corroborating coverage, not proof that every claim is correct."}
+    return {"status": "single_source", "count": 1, "sources": source,
+            "note": "No sufficiently similar report from another publisher was found in the recent collected headlines."}
