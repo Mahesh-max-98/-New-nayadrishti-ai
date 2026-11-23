@@ -31,7 +31,8 @@ def prepare_news_post(content, source_name=""):
     for raw_line in content.splitlines():
         line = re.sub(r"^[-•*\s]+", "", raw_line).strip()
         line = line.strip("*_").strip()
-        if not line or _TIME_RE.search(line) or _SOURCE_CREDIT_RE.match(line):
+        if (not line or _TIME_RE.search(line) or _DATE_LINE_RE.match(line)
+                or _NUMERIC_DATE_RE.search(line) or _SOURCE_CREDIT_RE.match(line)):
             continue
 
         line = _INLINE_CREDIT_RE.sub("", line).strip()
