@@ -87,7 +87,7 @@ def write_summary(title, description, source_name, article_url):
             continue
         lines.append(line)
 
-    if len(lines) < 2:
+    if len(lines) < 3:
         raise RuntimeError("Groq returned too little factual detail for a news post.")
     # Avoid a post that is only a headline plus repeated filler.
     unique_lines = []
