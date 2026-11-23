@@ -20,7 +20,7 @@ def _bounded_article_text(description):
     except (TypeError, ValueError):
         limit = MAX_ARTICLE_CHARS
     limit = max(500, min(limit, 2000))
-    return re.sub(r"\\s+", " ", description or "").strip()[:limit]
+    return re.sub(r"\s+", " ", description or "").strip()[:limit]
 
 
 def _post_to_groq(headers, payload, timeout=45):
