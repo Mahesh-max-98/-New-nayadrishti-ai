@@ -132,6 +132,7 @@ input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
 .draft h3{margin:0 0 8px;white-space:pre-line;line-height:1.7;font-size:19px}
 .top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.feed-row{padding:11px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.feed-name{font-weight:700}.feed-ok{color:#166534}.feed-error{color:#b91c1c}.feed-meta{color:#64748b;font-size:13px;margin-top:4px}.feed-error-text{color:#b91c1c;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
 a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 </style></head><body><main class="wrap">
 <header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
@@ -148,7 +149,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
 <button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
-<div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>
+<div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div></details>
 <section class="panel"><h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on.</p></section>
@@ -160,6 +161,28 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
+function renderFeedHealth(data){
+ const target=document.getElementById('feed-health-list');
+ if(!target)return;
+ target.replaceChildren();
+ const feeds=Array.isArray(data&&data.feed_details)?data.feed_details:[];
+ if(!feeds.length){target.textContent='No source check details are available yet.';return;}
+ feeds.forEach(feed=>{
+  const row=document.createElement('div');row.className='feed-row';
+  const left=document.createElement('div');
+  const name=document.createElement('div');name.className='feed-name';name.textContent=feed.source||'Unnamed source';
+  const meta=document.createElement('div');meta.className='feed-meta';
+  meta.textContent='Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New stories: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Undated: '+(feed.undated_skipped||0);
+  left.append(name,meta);
+  const status=document.createElement('strong');
+  if(feed.error){status.className='feed-error';status.textContent='ERROR';}
+  else if(Number(feed.entries_found||0)===0){status.className='feed-ok';status.textContent='OK · no entries';}
+  else{status.className='feed-ok';status.textContent='OK';}
+  row.append(left,status);
+  if(feed.error){const error=document.createElement('div');error.className='feed-error-text';error.textContent=feed.error;row.append(error);}
+  target.append(row);
+ });
+}
 async function runCheck(){
  const button=document.getElementById('check'),out=document.getElementById('result');
  if(button.disabled)return;
@@ -182,6 +205,7 @@ async function runCheck(){
    if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';await new Promise(resolve=>setTimeout(resolve,2500));return poll();}
    if(state.finished){
     const data=state.result||{};
+    renderFeedHealth(data);
     const status=document.getElementById('monitoring-status');
     status.textContent='Last check completed · '+(state.trigger||'unknown')+' run';
     if(state.error)out.textContent='Check failed: '+state.error;
@@ -212,6 +236,7 @@ window.addEventListener('load',async()=>{
  try{
   const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
   const state=await response.json(); seenDrafts=Number(state.new_drafts||0);
+  if(state.finished&&state.result)renderFeedHealth(state.result);
   if(state.running)el.textContent='Automatic news check is running.';
   else if(state.finished)el.textContent='Latest check completed. Waiting for the next automatic check.';
   else el.textContent='Automatic monitoring is ready.';
@@ -221,6 +246,7 @@ window.addEventListener('load',async()=>{
    const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
    if(!response.ok)return;
    const state=await response.json();
+   if(state.finished&&state.result)renderFeedHealth(state.result);
    if(state.running)el.textContent='Automatically checking news sources...';
    if(Number(state.new_drafts||0)>seenDrafts){
     el.textContent='New news draft found. Updating dashboard...';
