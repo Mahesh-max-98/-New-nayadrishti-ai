@@ -175,7 +175,7 @@ function renderFeedHealth(data){
   const left=document.createElement('div');
   const name=document.createElement('div');name.className='feed-name';name.textContent=feed.source||'Unnamed source';
   const meta=document.createElement('div');meta.className='feed-meta';
-  meta.textContent='Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New stories: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Undated: '+(feed.undated_skipped||0);
+  meta.textContent='Priority: '+(feed.priority||'C · थप खोज')+' · Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New stories: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Undated: '+(feed.undated_skipped||0);
   left.append(name,meta);
   const status=document.createElement('strong');
   if(feed.error){status.className='feed-error';status.textContent='ERROR';}
