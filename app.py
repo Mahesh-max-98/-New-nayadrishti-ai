@@ -132,7 +132,7 @@ input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
 .draft h3{margin:0 0 8px;white-space:pre-line;line-height:1.7;font-size:19px}\n.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{font-size:13px;padding:10px 13px}.actions .secondary{background:#475569}
 .top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
-.feed-row{padding:11px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.feed-name{font-weight:700}.feed-ok{color:#166534}.feed-error{color:#b91c1c}.feed-meta{color:#64748b;font-size:13px;margin-top:4px}.feed-error-text{color:#b91c1c;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
+.feed-row{padding:11px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.feed-name{font-weight:700}.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}.filters select{padding:11px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;min-width:170px}.tag{display:inline-block;padding:5px 9px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700;margin:0 5px 8px 0}.tag-breaking{background:#fee2e2;color:#991b1b}.feed-ok{color:#166534}.feed-error{color:#b91c1c}.feed-meta{color:#64748b;font-size:13px;margin-top:4px}.feed-error-text{color:#b91c1c;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
 a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 </style></head><body><main class="wrap">
 <header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
@@ -155,8 +155,14 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on.</p></section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
 <p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
+<form class="filters" method="get" action="/">
+<label for="category">Category</label><select id="category" name="category"><option value="">All categories ({{ total_drafts }})</option>{% for category in category_options %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }} ({{ category_counts.get(category, 0) }})</option>{% endfor %}</select>
+<label><input type="checkbox" name="breaking" value="1" {% if breaking_only %}checked{% endif %} style="width:auto;margin:0 5px 0 0"> Potential breaking only ({{ breaking_count }})</label>
+<button type="submit">Apply filters</button><a href="/">Clear</a>
+</form>
+<p class="small">Breaking labels are automatic signals based on urgent wording, source priority and a recent publication time. They are not confirmation; check the original article.</p>
 {% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
-{% for d in drafts %}<article class="draft"><h3>{{ d.summary }}</h3>
+{% for d in drafts %}<article class="draft">{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
 <p class="small">Source: {{ d.source or "Original publisher" }}</p>
 <p class="small"><strong>Coverage check:</strong>
 {% if d.verification_status == "matching_coverage" %}Similar reports found from {{ d.verification_count }} publishers.
@@ -281,10 +287,23 @@ def login_required(fn):
 @app.get("/")
 def home():
     logged_in = bool(session.get("admin"))
+    all_drafts = get_drafts(limit=100) if logged_in else []
+    selected_category = (request.args.get("category") or "").strip()
+    breaking_only = request.args.get("breaking") == "1"
+    category_options = ["राजनीति", "खेलकुद", "अर्थतन्त्र", "शिक्षा", "प्रविधि", "अन्तर्राष्ट्रिय", "अन्य"]
+    category_counts = {category: sum(1 for draft in all_drafts if (draft.get("category") or "अन्य") == category) for category in category_options}
+    breaking_count = sum(1 for draft in all_drafts if draft.get("is_breaking"))
+    drafts = [draft for draft in all_drafts if (not selected_category or (draft.get("category") or "अन्य") == selected_category) and (not breaking_only or draft.get("is_breaking"))]
     return render_template_string(
         PAGE,
         logged_in=logged_in,
-        drafts=get_drafts() if logged_in else [],
+        drafts=drafts,
+        total_drafts=len(all_drafts),
+        category_options=category_options,
+        category_counts=category_counts,
+        selected_category=selected_category,
+        breaking_only=breaking_only,
+        breaking_count=breaking_count,
         feed_count=len(configured_feeds()),
         monitoring_enabled=os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true",
         check_interval=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "300"))),
