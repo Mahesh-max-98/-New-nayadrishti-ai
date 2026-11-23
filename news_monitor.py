@@ -204,7 +204,7 @@ def _publisher_from_google_title(title, fallback):
     return (publisher or fallback), headline
 
 
-def check_feeds():
+def check_feeds(on_new_draft=None):
     feeds = configured_feeds()
     result = {
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
@@ -282,6 +282,11 @@ def check_feeds():
                 )
                 save_draft(item_id, title, publisher, article_url, post_text, language="ne")
                 result["drafts_saved"] += 1
+                if on_new_draft:
+                    try:
+                        on_new_draft({"title": title, "source": publisher})
+                    except Exception:
+                        log.exception("Could not publish live dashboard progress")
 
                 status = "draft"
                 if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
@@ -315,7 +320,7 @@ def check_feeds():
     result["note"] = (
         "Text-only Nepali news. No images are fetched, generated, stored, or published. "
         "The article text is preferred over RSS teasers, duplicate headlines are skipped, "
-        "and posts contain a source credit without a publication timestamp."
+        "and source attribution is stored separately from the post text; posts contain no publication timestamp."
     )
     log.info(
         "News scan complete: checked=%s/%s new=%s drafts=%s published=%s duplicates=%s errors=%s",

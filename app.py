@@ -1,6 +1,7 @@
 import os
 import threading
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from functools import wraps
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -25,7 +26,18 @@ _feed_execution_lock = threading.Lock()
 _check_status = {
     "running": False, "finished": False, "result": None, "error": None,
     "started_at": None, "finished_at": None, "trigger": None,
+    "new_drafts": 0, "last_draft": None,
 }
+
+
+def _record_new_draft(draft):
+    """Publish per-story progress so the dashboard can refresh immediately."""
+    with _check_lock:
+        _check_status["new_drafts"] = int(_check_status.get("new_drafts", 0)) + 1
+        _check_status["last_draft"] = {
+            "title": str(draft.get("title", ""))[:180],
+            "source": str(draft.get("source", ""))[:100],
+        }
 
 
 def _run_check(trigger, lock_acquired=False):
@@ -42,6 +54,7 @@ def _run_check(trigger, lock_acquired=False):
                     "running": False, "finished": True, "result": None,
                     "error": "Another news check is already running. Please try again shortly.",
                     "started_at": now, "finished_at": now, "trigger": trigger,
+                    "new_drafts": 0, "last_draft": None,
                 }
         return
     with _check_lock:
@@ -49,14 +62,17 @@ def _run_check(trigger, lock_acquired=False):
         _check_status = {
             "running": True, "finished": False, "result": None, "error": None,
             "started_at": started, "finished_at": None, "trigger": trigger,
+            "new_drafts": 0, "last_draft": None,
         }
     try:
-        result = check_feeds()
+        result = check_feeds(on_new_draft=_record_new_draft)
         with _check_lock:
             _check_status = {
                 "running": False, "finished": True, "result": result, "error": None,
                 "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
                 "trigger": trigger,
+                "new_drafts": int(_check_status.get("new_drafts", 0)),
+                "last_draft": _check_status.get("last_draft"),
             }
     except Exception as exc:
         app.logger.exception("News feed check failed")
@@ -66,6 +82,8 @@ def _run_check(trigger, lock_acquired=False):
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
                 "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
                 "trigger": trigger,
+                "new_drafts": int(_check_status.get("new_drafts", 0)),
+                "last_draft": _check_status.get("last_draft"),
             }
     finally:
         _feed_execution_lock.release()
@@ -77,10 +95,14 @@ def _scheduled_feed_check():
 
 scheduler = BackgroundScheduler(daemon=True)
 if os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true":
+    # Run only during Nepal daytime hours. Render free instances can sleep;
+    # the scheduler resumes only when the web process is awake.
     scheduler.add_job(
         _scheduled_feed_check,
-        trigger="interval",
-        seconds=max(600, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "600"))),
+        trigger="cron",
+        minute="*/5",
+        hour="5-22",
+        timezone=ZoneInfo("Asia/Kathmandu"),
         id="nayadrishti_news_monitor",
         replace_existing=True,
         max_instances=1,
@@ -121,11 +143,11 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}
 <section class="panel"><div class="top"><h2>News monitoring</h2><form method="post" action="/logout"><button>Log out</button></form></div>
 <p>Configured news sources: <strong>{{ feed_count }}</strong></p>
-<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Interval: <strong>{{ check_interval }} seconds</strong></p>
-<p class="small">Checks run while the Render service is awake. A free web service may sleep, so continuous 24/7 monitoring is not guaranteed.</p>
-<p class="small">Text-only mode: no image generation, image fetching, photo attachments, or image studio. News posts contain a Nepali headline, factual summary, and source credit. The post text does not include publication timestamps.</p>
+<p>Automatic monitoring: <strong>{{ "ON" if monitoring_enabled else "OFF" }}</strong> · Schedule: <strong>5:00 AM–11:00 PM Nepal time</strong> · Every <strong>5 minutes</strong></p>
+<p class="small">Automatic checks run from 5:00 AM through 10:55 PM Nepal time while the Render service is awake. Render's free service may sleep after inactivity, so checks can pause until it wakes.</p>
+<p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
-<button id="check" onclick="runCheck()">Check news now</button>
+<button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>
 <section class="panel"><h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
@@ -185,13 +207,27 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
+ const el=document.getElementById('monitoring-status');
+ let seenDrafts=0;
  try{
-  const response=await fetch('/run-check',{headers:{'Accept':'application/json'}});
-  const state=await response.json(),el=document.getElementById('monitoring-status');
-  if(state.running)el.textContent='A news check is currently running.';
-  else if(state.finished)el.textContent='The latest news check has finished.';
-  else el.textContent='No check has completed since this server started.';
- }catch(error){}
+  const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
+  const state=await response.json(); seenDrafts=Number(state.new_drafts||0);
+  if(state.running)el.textContent='Automatic news check is running.';
+  else if(state.finished)el.textContent='Latest check completed. Waiting for the next automatic check.';
+  else el.textContent='Automatic monitoring is ready.';
+ }catch(error){el.textContent='Could not load monitoring status.';}
+ setInterval(async()=>{
+  try{
+   const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
+   if(!response.ok)return;
+   const state=await response.json();
+   if(state.running)el.textContent='Automatically checking news sources...';
+   if(Number(state.new_drafts||0)>seenDrafts){
+    el.textContent='New news draft found. Updating dashboard...';
+    location.reload();
+   }
+  }catch(error){}
+ },2500);
 });
 </script>{% endif %}</body></html>
 """
@@ -215,7 +251,7 @@ def home():
         drafts=get_drafts() if logged_in else [],
         feed_count=len(configured_feeds()),
         monitoring_enabled=os.getenv("ENABLE_AUTO_MONITORING", "true").lower() == "true",
-        check_interval=max(600, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "600"))),
+        check_interval=max(60, int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "300"))),
         publishing=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").lower() == "true",
         error=request.args.get("error"),
     )
@@ -261,6 +297,7 @@ def run_check():
                 _check_status = {
                     "running": True, "finished": False, "result": None, "error": None,
                     "started_at": now, "finished_at": None, "trigger": "automatic",
+                    "new_drafts": 0, "last_draft": None,
                 }
             return jsonify(_check_status), 202
     with _check_lock:
