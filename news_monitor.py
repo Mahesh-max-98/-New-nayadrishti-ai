@@ -12,7 +12,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, already_seen_story, remember, save_draft, set_draft_status
+from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status
 from facebook_publisher import publish_text
 
 log = logging.getLogger("nayadrishti")
@@ -344,7 +344,11 @@ def check_feeds(on_new_draft=None):
                     source_name=publisher,
                     article_url=article_url,
                 )
-                save_draft(item_id, title, publisher, article_url, post_text, language="ne")
+                verification = assess_cross_source_coverage(title, publisher)
+                save_draft(
+                    item_id, title, publisher, article_url, post_text,
+                    language="ne", verification=verification,
+                )
                 result["drafts_saved"] += 1
                 if on_new_draft:
                     try:
@@ -385,7 +389,7 @@ def check_feeds(on_new_draft=None):
         "Text-only Nepali news. No images are fetched, generated, stored, or published. "
         "The article text is preferred over RSS teasers, duplicate headlines are skipped, "
         "publisher feeds are checked by editorial priority, and story candidates are ranked by publisher priority, topic signals and freshness. "
-        "Priority is a discovery aid, not a guarantee of accuracy; source links remain available for human review."
+        "Priority is a discovery aid, not a guarantee of accuracy. Cross-source labels identify similar headlines from different publishers, not verified facts; differing numbers are flagged for manual comparison."
     )
     log.info(
         "News scan complete: checked=%s/%s new=%s drafts=%s published=%s duplicates=%s errors=%s",
