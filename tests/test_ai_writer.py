@@ -13,12 +13,12 @@ class PrepareNewsPostTests(unittest.TestCase):
 
     def test_removes_source_credit_timestamp_url_and_hashtag(self):
         generated = (
-            self.valid_nepali_post
-            + "\nस्रोत: Onlinekhabar\nप्रकाशित समय: 10:30 AM"
-            + "\nथप जानकारी https://example.com #समाचार"
+            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\n"
+            "यसबाट देशभरका नागरिकलाई सेवा लिन सहज हुने बताइएको छ।\n"
+            "सम्बन्धित निकायले कार्यान्वयन प्रक्रिया अघि बढाउने जनाएको छ। "
+            "https://example.com #समाचार\n"
+            "स्रोत: Onlinekhabar\nप्रकाशित समय: 10:30 AM"
         )
-        # The extra promotional line is removed by the link/hashtag cleaner only
-        # if it becomes empty, so keep the post to three substantive lines.
         result = prepare_news_post(generated, "Onlinekhabar")
         self.assertNotIn("स्रोत", result)
         self.assertNotIn("Onlinekhabar", result)
