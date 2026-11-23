@@ -37,31 +37,36 @@ def configured_feeds():
     """Use the three requested priority sources; Google News is discovery only."""
     raw = os.getenv("NEWS_FEEDS", "")
     feeds = []
-    allowed = ("neb", "routine of nepal banda", "ronb", "troll cricket")
+    allowed = (
+        "neb", "routine of nepal banda", "ronb", "troll cricket",
+        "bbc nepali", "onlinekhabar", "ok khabar", "okkhabar",
+        "laligurash", "laligurash media",
+    )
     for part in raw.split("|"):
         if "=" not in part:
             continue
         name, url = part.split("=", 1)
         name, url = name.strip(), url.strip()
-        if (
-            name and url.startswith(("https://", "http://"))
-            and any(term in name.lower() for term in allowed)
-        ):
+        if name and url.startswith(("https://", "http://")) and any(term in name.lower() for term in allowed):
             feeds.append((name, url))
 
-    # Always include the official NEB feed; avoid adding it twice.
+    # Keep the existing NEB RSS endpoint and discover requested publishers
+    # through Google News RSS when they do not expose a stable public feed.
     neb_url = "https://nebnews.net/feed/"
     if not any(url.rstrip("/") == neb_url.rstrip("/") for _, url in feeds):
         feeds.append(("NEB News and Result", neb_url))
 
-    # Google News RSS is used only to discover recent posts from the two
-    # requested social/news sources. It is not treated as the original publisher.
     google_queries = [
-        ("Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d', "en", "NP", "NP:en"),
-        ("Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d', "en", "NP", "NP:en"),
+        ("Google News - Routine of Nepal Banda", '"Routine of Nepal Banda" OR RONB Nepal when:1d'),
+        ("Google News - Troll Cricket Nepal", '"Troll Cricket Nepal" when:1d'),
+        ("Google News - BBC Nepali", 'site:bbc.com/nepali OR site:bbc.com/news "Nepal" when:1d'),
+        ("Google News - Onlinekhabar", 'site:onlinekhabar.com when:1d'),
+        ("Google News - OK Khabar", 'site:okkhabar.com when:1d'),
+        ("Google News - Laligurash Media Network", 'site:laligurash.com when:1d'),
+        ("Google News - NEB", 'site:neb.gov.np OR "National Examinations Board Nepal" when:1d'),
     ]
-    for source_name, query, language, country, edition in google_queries:
-        params = urlencode({"q": query, "hl": language, "gl": country, "ceid": edition})
+    for source_name, query in google_queries:
+        params = urlencode({"q": query, "hl": "ne", "gl": "NP", "ceid": "NP:ne"})
         feeds.append((source_name, "https://news.google.com/rss/search?" + params))
     # De-duplicate configured URLs while preserving order.
     unique = []
@@ -383,6 +388,17 @@ def check_feeds():
                 title = clean_text(item.get("title"), 300)
                 link = (item.get("link") or "").strip()
                 description = clean_text(item.get("summary") or item.get("description") or "")
+                # Google News is a discovery index; recover the publisher suffix
+                # from its headline so the post credits the original outlet.
+                if source_name.startswith("Google News - "):
+                    publisher_match = re.search(r"\\s[-–—]\\s([^|]+)$", title)
+                    if publisher_match:
+                        source_name_for_post = publisher_match.group(1).strip()
+                        title = title[:publisher_match.start()].strip()
+                    else:
+                        source_name_for_post = source_name.replace("Google News - ", "").strip()
+                else:
+                    source_name_for_post = source_name
                 if not title or not link:
                     continue
 
@@ -429,7 +445,7 @@ def check_feeds():
                 # describes the actual development rather than announcing the publisher.
                 article_text = fetch_article_text(link, description)
                 summary = write_summary(title=title, description=article_text,
-                                        source_name=source_name, article_url=link)
+                                        source_name=source_name_for_post, article_url=link)
                 if not summary:
                     raise ValueError("Groq returned an empty news post.")
 
