@@ -63,5 +63,36 @@ class PrepareNewsPostTests(unittest.TestCase):
         self.assertEqual(len(result.splitlines()), 3)
 
 
+
+class NewsDiscoveryRankingTests(unittest.TestCase):
+    def test_named_publishers_receive_priority_a(self):
+        from news_monitor import source_priority, source_priority_label
+        self.assertEqual(source_priority("Google News - Kantipur/eKantipur"), 100)
+        self.assertEqual(source_priority("Nagarik News"), 100)
+        self.assertTrue(source_priority_label("BBC Nepali").startswith("A"))
+
+    def test_community_and_unknown_sources_are_not_ranked_as_top_tier(self):
+        from news_monitor import source_priority
+        self.assertLess(source_priority("Troll Cricket Nepal"), 100)
+        self.assertEqual(source_priority("Unknown Blog"), 40)
+
+    def test_topic_classifier_can_return_multiple_topics(self):
+        from news_monitor import classify_story
+        topics = classify_story("क्रिकेट प्रतियोगिता र नयाँ बजेट")
+        self.assertIn("खेलकुद", topics)
+        self.assertIn("अर्थतन्त्र", topics)
+
+    def test_story_priority_prefers_higher_priority_source(self):
+        from news_monitor import _story_priority
+        item = {
+            "title": "सरकारले नयाँ बजेट सार्वजनिक गर्‍यो",
+            "summary": "अर्थतन्त्र र बजेटसम्बन्धी समाचार",
+            "published_parsed": None,
+        }
+        community = _story_priority(item, "Troll Cricket Nepal")
+        established = _story_priority(item, "Kantipur")
+        self.assertGreater(established[0], community[0])
+
+
 if __name__ == "__main__":
     unittest.main()

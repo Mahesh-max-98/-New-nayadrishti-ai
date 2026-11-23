@@ -46,6 +46,60 @@ GOOGLE_NEWS_QUERIES = [
 ]
 
 
+# Editorial source priority is a discovery-ordering aid, not a guarantee that a
+# publisher is always correct. Original links remain available for human review.
+SOURCE_PRIORITY = {
+    "bbc nepali": 100, "gorkhapatra": 100, "kantipur": 100, "ekantipur": 100,
+    "annapurna": 100, "nagarik": 100, "onlinekhabar": 100, "setopati": 100,
+    "ratopati": 100, "ujyaalo": 100, "ujyalo": 100,
+    "thaha khabar": 85, "nepal samaya": 85, "ok khabar": 85,
+    "okkhabar": 85, "neb": 85,
+    "routine of nepal banda": 70, "ronb": 70,
+    "troll cricket": 70, "laligurash": 65,
+}
+
+TOPIC_KEYWORDS = {
+    "राजनीति": ("सरकार", "प्रधानमन्त्री", "मन्त्री", "संसद", "निर्वाचन", "चुनाव", "राजनीति", "राष्ट्रपति", "politics", "election"),
+    "खेलकुद": ("खेल", "क्रिकेट", "फुटबल", "खेलाडी", "गोल", "प्रतियोगिता", "sports", "cricket", "football"),
+    "अर्थतन्त्र": ("अर्थतन्त्र", "बजेट", "बैंक", "बजार", "महँगी", "मूल्य", "व्यवसाय", "आर्थिक", "economy", "business"),
+    "शिक्षा": ("शिक्षा", "विद्यालय", "परीक्षा", "विद्यार्थी", "विश्वविद्यालय", "शिक्षक", "education", "exam", "school"),
+    "प्रविधि": ("प्रविधि", "विज्ञान", "कृत्रिम बुद्धिमत्ता", "एआई", "technology", "science", "artificial intelligence", "AI"),
+    "अन्तर्राष्ट्रिय": ("अन्तर्राष्ट्रिय", "विश्व", "अमेरिका", "भारत", "चीन", "international", "world"),
+}
+
+
+def source_priority(source_name):
+    """Return the highest configured editorial priority matching a publisher/feed."""
+    normalized = clean_text(source_name, 200).casefold()
+    matches = [score for name, score in SOURCE_PRIORITY.items() if name in normalized]
+    return max(matches, default=40)
+
+
+def source_priority_label(source_name):
+    score = source_priority(source_name)
+    return "A · प्राथमिक" if score >= 100 else "B · नियमित" if score >= 80 else "C · थप खोज"
+
+
+def classify_story(title, description=""):
+    """Assign broad topic labels using transparent keyword matching."""
+    text = (str(title or "") + " " + str(description or "")).casefold()
+    return [
+        category for category, keywords in TOPIC_KEYWORDS.items()
+        if any(keyword.casefold() in text for keyword in keywords)
+    ] or ["अन्य"]
+
+
+def _story_priority(item, feed_name):
+    """Rank a candidate using publisher priority, topical signals and freshness."""
+    raw_title = clean_text(item.get("title"), 300)
+    publisher, headline = _publisher_from_google_title(raw_title, feed_name)
+    timestamp = _entry_timestamp(item)
+    age_hours = max(0.0, (datetime.now(timezone.utc).timestamp() - timestamp) / 3600) if timestamp else 168.0
+    freshness_score = max(0, 24 - int(age_hours))
+    topic_score = min(20, 5 * len(classify_story(headline, item.get("summary") or item.get("description") or "")))
+    return (source_priority(publisher), topic_score, freshness_score)
+
+
 def configured_feeds():
     """Return custom approved RSS feeds plus Google News discovery feeds."""
     feeds = list(DIRECT_NEWS_FEEDS)
@@ -226,18 +280,21 @@ def check_feeds(on_new_draft=None):
     per_feed_limit = max(1, min(int(os.getenv("MAX_STORIES_PER_FEED", "2")), 5))
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
 
+    # Check higher-priority publisher feeds first; retain every configured feed.
+    feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
     for feed_name, feed_url in feeds:
         detail = {
             "source": feed_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
             "fresh_candidates": 0, "error": None,
+            "priority": source_priority_label(feed_name),
         }
         try:
             parsed = fetch_feed(feed_url)
             result["feeds_checked"] += 1
             entries = sorted(
                 parsed.entries,
-                key=lambda entry: _entry_timestamp(entry) or 0,
+                key=lambda entry: _story_priority(entry, feed_name),
                 reverse=True,
             )
             detail["entries_found"] = len(entries)
@@ -327,7 +384,8 @@ def check_feeds(on_new_draft=None):
     result["note"] = (
         "Text-only Nepali news. No images are fetched, generated, stored, or published. "
         "The article text is preferred over RSS teasers, duplicate headlines are skipped, "
-        "and source attribution is stored separately from the post text; posts contain no publication timestamp."
+        "publisher feeds are checked by editorial priority, and story candidates are ranked by publisher priority, topic signals and freshness. "
+        "Priority is a discovery aid, not a guarantee of accuracy; source links remain available for human review."
     )
     log.info(
         "News scan complete: checked=%s/%s new=%s drafts=%s published=%s duplicates=%s errors=%s",
