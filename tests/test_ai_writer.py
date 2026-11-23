@@ -94,5 +94,15 @@ class NewsDiscoveryRankingTests(unittest.TestCase):
         self.assertGreater(established[0], community[0])
 
 
+
+class CrossSourceCoverageTests(unittest.TestCase):
+    def test_cross_source_assessor_is_available(self):
+        from database import assess_cross_source_coverage
+        self.assertTrue(callable(assess_cross_source_coverage))
+
+    def test_assessor_explicitly_avoids_fact_check_claim(self):
+        from database import assess_cross_source_coverage
+        self.assertIn("not fact-checking", assess_cross_source_coverage.__doc__)
+
 if __name__ == "__main__":
     unittest.main()
