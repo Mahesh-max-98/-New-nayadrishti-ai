@@ -74,7 +74,7 @@ class PrepareNewsPostTests(unittest.TestCase):
     def test_rejects_repeated_headline_as_body(self):
         generated = (
             "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\n"
-            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\n"
+            "सरकारले नयाँ नीति सार्वजनिक गरेको छ\n"
             "सम्बन्धित निकायले कार्यान्वयन प्रक्रिया अघि बढाउने जनाएको छ।"
         )
         with self.assertRaisesRegex(RuntimeError, "repeats its headline"):
