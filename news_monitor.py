@@ -387,7 +387,7 @@ def check_feeds():
                 # Google News is a discovery index; recover the publisher suffix
                 # from its headline so the post credits the original outlet.
                 if source_name.startswith("Google News - "):
-                    publisher_match = re.search(r"\\s[-–—]\\s([^|]+)$", title)
+                    publisher_match = re.search(r"\s[-–—]\s([^|]+)$", title)
                     if publisher_match:
                         source_name_for_post = publisher_match.group(1).strip()
                         title = title[:publisher_match.start()].strip()
