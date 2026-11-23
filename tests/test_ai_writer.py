@@ -113,7 +113,8 @@ class GroqRequestResilienceTests(unittest.TestCase):
     def test_permanent_client_error_is_not_retried(self):
         from unittest.mock import Mock, patch
         too_large = Mock(ok=False, status_code=413, headers={}, text="payload too large")
-        with patch("ai_writer.requests.post", return_value=too_large) as post:
+        with patch.dict("os.environ", {"GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0"}), \
+             patch("ai_writer.requests.post", return_value=too_large) as post:
             response = _post_to_groq(headers={}, payload={}, timeout=1)
         self.assertEqual(response.status_code, 413)
         self.assertEqual(post.call_count, 1)
