@@ -16,7 +16,7 @@ class FacebookPublisherSafetyTests(unittest.TestCase):
             "FB_PAGE_ACCESS_TOKEN": "token-secret-value",
         }, clear=False):
             status = facebook_publisher.facebook_configuration_status()
-        self.assertTrue(status["ready"])
+        self.assertTrue(status["credentials_present"])
         self.assertNotIn("page-secret-id", str(status))
         self.assertNotIn("token-secret-value", str(status))
 
