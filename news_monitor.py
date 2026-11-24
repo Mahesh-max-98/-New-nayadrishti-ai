@@ -392,11 +392,27 @@ def check_feeds(on_new_draft=None):
                         f"{publisher} summary failed: {type(exc).__name__}: {str(exc)[:140]}"
                     )
                     log.warning("AI summary failed for %s (%s): %s", publisher, title[:100], exc)
-                    if "GEMINI_BUDGET_PAUSED" in str(exc):
+                    error_text = str(exc)
+                    if "GEMINI_BUDGET_PAUSED" in error_text:
                         ai_paused_for_scan = True
                         result["ai_budget_paused"] = True
-                        result["ai_budget_reason"] = str(exc)[:220]
-                    elif "Groq API error 429" in str(exc) or "Groq API error 413" in str(exc):
+                        result["ai_budget_reason"] = error_text[:220]
+                    elif any(marker in error_text for marker in (
+                        "GEMINI_PROVIDER_PAUSED",
+                        "Gemini API error 429", "Gemini API error 500",
+                        "Gemini API error 502", "Gemini API error 503",
+                        "Gemini API error 504", "GROQ_KEYS_EXHAUSTED",
+                        "Groq API error 429", "Groq API error 500",
+                        "Groq API error 502", "Groq API error 503",
+                        "Groq API error 504",
+                    )):
+                        # One provider-wide failure is enough for this scan.
+                        # Keep remaining stories unseen for a later scheduled retry.
+                        ai_paused_for_scan = True
+                        result["ai_provider_paused"] = True
+                        result["ai_provider_pause_reason"] = error_text[:220]
+                    elif "Groq API error 413" in error_text:
+                        ai_paused_for_scan = True
                         result["ai_provider_paused"] = True
                     continue
 
