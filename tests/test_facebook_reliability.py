@@ -35,6 +35,38 @@ class FacebookPublisherSafetyTests(unittest.TestCase):
         self.assertEqual(caught.exception.error_code, "190")
         self.assertNotIn("private-token", str(caught.exception))
         self.assertNotIn("invalid token", str(caught.exception))
+        self.assertIn("OAuth error 190", str(caught.exception))
+
+    def test_connection_check_is_read_only_and_does_not_publish(self):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"id": "123", "name": "Test Page"}
+        with patch.dict(os.environ, {
+            "FB_PAGE_ID": "123",
+            "FB_PAGE_ACCESS_TOKEN": "private-token",
+        }, clear=False), patch.object(facebook_publisher.requests, "get", return_value=response) as get_request:
+            result = facebook_publisher.check_facebook_connection()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["page_name"], "Test Page")
+        get_request.assert_called_once()
+        self.assertEqual(get_request.call_args.kwargs["params"]["fields"], "id,name")
+        self.assertNotIn("private-token", str(result))
+
+    def test_deleted_app_error_gets_safe_actionable_message(self):
+        response = Mock()
+        response.ok = False
+        response.status_code = 400
+        response.json.return_value = {"error": {
+            "code": 190, "message": "The application has been deleted.",
+        }}
+        with patch.dict(os.environ, {
+            "FB_PAGE_ID": "123",
+            "FB_PAGE_ACCESS_TOKEN": "private-token",
+        }, clear=False), patch.object(facebook_publisher.requests, "get", return_value=response):
+            result = facebook_publisher.check_facebook_connection()
+        self.assertFalse(result["ok"])
+        self.assertIn("active Meta app", result["message"])
+        self.assertNotIn("private-token", str(result))
 
     def test_network_failure_is_not_reported_as_definitive_rejection(self):
         with patch.dict(os.environ, {
