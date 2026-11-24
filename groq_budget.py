@@ -115,6 +115,7 @@ def get_groq_usage_status():
         "groq_posts_created": int(row["posts_created"]),
         "fallback_posts_created": int(fallback_row["posts_created"]),
         "fallback_requests": int(fallback_row["requests_started"]),
+        "fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
         "fallback_paused": bool(fallback_row.get("paused_until") and fallback_row["paused_until"] > now),
         "fallback_paused_until": fallback_row["paused_until"].isoformat() if fallback_row.get("paused_until") else None,
         "fallback_pause_reason": fallback_row.get("pause_reason", "") if fallback_row.get("paused_until") and fallback_row["paused_until"] > now else "",
