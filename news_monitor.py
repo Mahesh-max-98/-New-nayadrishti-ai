@@ -342,7 +342,7 @@ def _non_ai_headline_is_eligible(title, publisher, article_url, published_timest
     clean_title = clean_text(title, 300)
     if source_priority(publisher) < 85 or len(clean_title) < 8:
         return False
-    if len(re.findall(r"[\\u0900-\\u097F]", clean_title)) < 5:
+    if len(re.findall(r"[\u0900-\u097F]", clean_title)) < 5:
         return False
     if any(keyword.casefold() in clean_title.casefold() for keyword in BREAKING_KEYWORDS):
         return False
