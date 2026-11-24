@@ -77,6 +77,20 @@ def init_db():
             )
         """)
         db.execute("CREATE INDEX IF NOT EXISTS pending_stories_due_idx ON pending_stories(status, next_attempt_at, expires_at)")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS facebook_publications (
+                item_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK (status IN ('publishing','published','failed','unknown')),
+                post_id TEXT,
+                error_code TEXT,
+                error_message TEXT NOT NULL DEFAULT '',
+                attempts INTEGER NOT NULL DEFAULT 1,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                finished_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("CREATE INDEX IF NOT EXISTS facebook_publications_status_idx ON facebook_publications(status, updated_at DESC)")
 
 
 def already_seen(item_id):
@@ -414,3 +428,68 @@ def count_non_ai_headline_posts_today():
               AND created_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kathmandu') - INTERVAL '5 hours 45 minutes')
         """).fetchone()
     return int(row["total"] or 0)
+
+
+def begin_facebook_publication(item_id):
+    """Durably reserve one Facebook attempt; never automatically repeat an uncertain attempt."""
+    with connection() as db:
+        inserted = db.execute("""
+            INSERT INTO facebook_publications (item_id, status)
+            VALUES (%s, 'publishing')
+            ON CONFLICT(item_id) DO NOTHING
+            RETURNING item_id
+        """, (item_id,)).fetchone()
+        row = db.execute("""
+            SELECT item_id, status, post_id, error_code, error_message, attempts,
+                   started_at, finished_at, updated_at
+            FROM facebook_publications WHERE item_id=%s FOR UPDATE
+        """, (item_id,)).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["reserved"] = bool(inserted)
+        return result
+
+
+def finish_facebook_publication(item_id, status, post_id=None, error_code=None, error_message=""):
+    if status not in {"published", "failed", "unknown"}:
+        raise ValueError("Invalid Facebook publication status.")
+    with connection() as db:
+        db.execute("""
+            UPDATE facebook_publications
+            SET status=%s, post_id=%s, error_code=%s, error_message=%s,
+                finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+            WHERE item_id=%s AND status='publishing'
+        """, (status, post_id, (str(error_code)[:80] if error_code else None),
+              (error_message or "")[:300], item_id))
+
+
+def get_facebook_publication_status(limit=30):
+    """Return safe publication counts and recent records for the admin dashboard."""
+    with connection() as db:
+        db.execute("""
+            UPDATE facebook_publications
+            SET status='unknown',
+                error_message='The app restarted before the publishing result was recorded. Check the Page before retrying.',
+                finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+            WHERE status='publishing'
+              AND started_at < CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+        """)
+        counts = db.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE status='published') AS published,
+                COUNT(*) FILTER (WHERE status='failed') AS failed,
+                COUNT(*) FILTER (WHERE status='unknown') AS unknown,
+                COUNT(*) FILTER (WHERE status='publishing') AS publishing
+            FROM facebook_publications
+        """).fetchone()
+        rows = db.execute("""
+            SELECT item_id, status, post_id, error_code, error_message,
+                   started_at, finished_at, updated_at
+            FROM facebook_publications
+            ORDER BY updated_at DESC LIMIT %s
+        """, (max(1, min(int(limit), 100)),)).fetchall()
+    return {
+        "counts": {key: int(value or 0) for key, value in counts.items()},
+        "recent": [dict(row) for row in rows],
+    }

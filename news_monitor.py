@@ -12,9 +12,9 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today
+from database import begin_facebook_publication, finish_facebook_publication, already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today
 from groq_budget import get_groq_usage_status
-from facebook_publisher import publish_text
+from facebook_publisher import publish_text, FacebookPublishError
 
 log = logging.getLogger("nayadrishti")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -288,6 +288,39 @@ def _publisher_from_google_title(title, fallback):
     return (publisher or fallback), headline
 
 
+
+def _publish_facebook_tracked(item_id, post_text):
+    """Publish once per story and persist the result without unsafe blind retries."""
+    reservation = begin_facebook_publication(item_id)
+    if not reservation:
+        return {"status": "unknown", "reason": "Could not confirm the durable publishing reservation."}
+    if not reservation.get("reserved") or reservation["status"] != "publishing":
+        return {"status": reservation["status"], "reason": "A Facebook attempt already exists; duplicate publishing was blocked."}
+    try:
+        outcome = publish_text(post_text)
+        if not outcome.get("published"):
+            finish_facebook_publication(item_id, "failed", error_code="publishing_disabled",
+                                        error_message=outcome.get("reason", "Publishing disabled."))
+            return {"status": "failed", "reason": outcome.get("reason", "Publishing disabled.")}
+        finish_facebook_publication(item_id, "published", post_id=outcome.get("post_id"))
+        set_draft_status(item_id, "published")
+        remember(item_id, "", "", "", "published")
+        return {"status": "published", "post_id": outcome.get("post_id")}
+    except FacebookPublishError as exc:
+        finish_facebook_publication(
+            item_id, "failed", error_code=exc.error_code or exc.status_code,
+            error_message=str(exc),
+        )
+        return {"status": "failed", "reason": str(exc)}
+    except Exception as exc:
+        # A timeout or network failure is ambiguous: Meta may already have accepted the post.
+        finish_facebook_publication(
+            item_id, "unknown", error_code=type(exc).__name__,
+            error_message="The result could not be confirmed. Check the Page before any manual retry.",
+        )
+        return {"status": "unknown", "reason": "Publishing result is uncertain; duplicate retry blocked."}
+
+
 def _publish_processed_story(item_id, title, publisher, article_url, article_text, post_text,
                              published_timestamp=None, on_new_draft=None, result=None):
     """Save a validated post and publish it when Facebook publishing is enabled."""
@@ -320,19 +353,11 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
         result["new_items"] += 1
 
     if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
-        try:
-            published = publish_text(post_text)
-            if published.get("published"):
-                set_draft_status(item_id, "published")
-                remember(item_id, title, publisher, article_url, "published")
-                if result is not None:
-                    result["published"] += 1
-        except Exception as exc:
-            log.exception("Facebook text publishing failed for %s", publisher)
-            if result is not None:
-                result["errors"].append(
-                    f"{publisher} publish failed: {type(exc).__name__}: {str(exc)[:160]}"
-                )
+        outcome = _publish_facebook_tracked(item_id, post_text)
+        if outcome["status"] == "published" and result is not None:
+            result["published"] += 1
+        elif outcome["status"] in {"failed", "unknown"} and result is not None:
+            result["errors"].append(f"{publisher} Facebook status: {outcome['status']} ({outcome.get('reason', 'see dashboard')})")
 
 
 
@@ -412,20 +437,12 @@ def _publish_non_ai_headline(item_id, title, publisher, article_url, published_t
         result["non_ai_fallback_drafts"] += 1
 
     if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
-        try:
-            published = publish_text(post_text)
-            if published.get("published"):
-                set_draft_status(item_id, "published")
-                remember(item_id, title, publisher, article_url, "published")
-                if result is not None:
-                    result["published"] += 1
-                    result["non_ai_fallback_published"] += 1
-        except Exception as exc:
-            log.exception("Facebook headline-only fallback publishing failed for %s", publisher)
-            if result is not None:
-                result["errors"].append(
-                    f"{publisher} headline-only publish failed: {type(exc).__name__}: {str(exc)[:140]}"
-                )
+        outcome = _publish_facebook_tracked(item_id, post_text)
+        if outcome["status"] == "published" and result is not None:
+            result["published"] += 1
+            result["non_ai_fallback_published"] += 1
+        elif outcome["status"] in {"failed", "unknown"} and result is not None:
+            result["errors"].append(f"{publisher} headline-only Facebook status: {outcome['status']} ({outcome.get('reason', 'see dashboard')})")
     return True
 
 
