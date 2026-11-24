@@ -9,7 +9,7 @@ NayaDrishti AI is a text-only Nepali news collection and Facebook publishing das
 3. Sorts entries by publication date and skips undated or stale items.
 3. Opens the original article where accessible and prefers its text over a short RSS teaser.
 4. Checks item links and normalized headlines against previously seen stories.\n5. Checks higher-priority publisher feeds first and ranks each story using publisher priority, topical signals and freshness. Priority labels guide discovery order; they do not certify factual accuracy.
-6. Uses Groq to write a clear 3–6 line Nepali Facebook post.
+6. Uses Groq first and Gemini as a backup to write a clear 3–6 line Nepali Facebook post.
 7. Keeps publisher details separately for review. Public post text has no source-credit line or publication timestamp.
 8. Saves the text draft; Facebook publishing remains OFF unless explicitly enabled.
 
@@ -84,7 +84,7 @@ NayaDrishti can be configured with up to three Groq API key environment variable
 
 ## AI reliability and request limits
 
-Groq requests are serialized, article context is bounded, and temporary rate-limit/server errors receive a small bounded retry. Each scan makes at most three AI requests by default. Stories that cannot be summarized are not marked as seen, so later scans can retry them. One story's summary error is recorded without aborting unrelated stories; a provider-wide rate-limit or oversized-request error stops further AI calls for that scan to avoid repeatedly hitting the same limit.
+Groq requests are serialized, article context is bounded, and temporary rate-limit/server errors receive a small bounded retry. Each scan makes at most five AI requests by default. Stories that cannot be summarized are not marked as seen, so later scans can retry them. One story's summary error is recorded without aborting unrelated stories; a provider-wide rate-limit or oversized-request error stops further AI calls for that scan to avoid repeatedly hitting the same limit.
 
 ## Monitoring limits
 
@@ -121,3 +121,12 @@ New drafts are assigned a primary topic category using transparent Nepali/Englis
 Groq remains the primary writer. If Groq is unavailable because its daily request/token safety budget is reached, it returns HTTP 429, or it has an authentication/provider outage (401/403/selected 5xx), NayaDrishti can try Google Gemini using a separately authorized API key. Configure `GEMINI_API_KEY` in Render; `GEMINI_MODEL` defaults to `gemini-3.8-flash`. The Gemini fallback has its own daily request ceiling (`MAX_FALLBACK_AI_REQUESTS_PER_DAY`, default 50) and shares the overall `MAX_NEWS_POSTS_PER_DAY` ceiling with Groq-created drafts. Provider quotas and billing are independent and still apply; fallback is not a guarantee of uninterrupted generation.
 
 If both providers fail, the story is not marked as seen and remains eligible for a later feed scan. All output goes through the same Nepali quality validation. Facebook publishing remains controlled separately by `ENABLE_FACEBOOK_PUBLISHING` and stays OFF by default.
+
+
+## Phase 14 — provider recovery and Facebook continuity
+
+When Groq returns a rate-limit or temporary provider error, NayaDrishti tries the configured Gemini backup. Gemini retries a temporary 5xx response only once, respects a short Retry-After delay, and does not blindly retry HTTP 429. A temporary Gemini outage creates a persistent cooldown in PostgreSQL; the scanner stops further AI attempts for that scan instead of repeatedly calling an unavailable provider. The remaining stories stay eligible for a later scan.
+
+The dashboard usage panel reports when Gemini is cooling down. Groq and Gemini usage limits are tracked separately, while the overall daily draft ceiling remains shared. This improves recovery but cannot guarantee that a new AI-written post can be created while both providers are unavailable.
+
+Facebook publishing is a separate setting. When ENABLE_FACEBOOK_PUBLISHING=true, a successfully generated and validated post can be sent to the configured Page whether Groq or Gemini wrote it. If both AI providers are unavailable, NayaDrishti safely waits rather than inventing a summary or copying a publisher's article. Facebook's own API permissions, availability and rate limits still apply. Render Free may also sleep, so automatic checks are not guaranteed 24/7.
