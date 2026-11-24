@@ -6,13 +6,13 @@ import os
 import re
 from datetime import datetime, timezone
 from html.parser import HTMLParser
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story
+from database import already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today
 from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text
 
@@ -335,6 +335,95 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
                 )
 
 
+
+
+def _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp=None, now=None):
+    """Allow only fresh, non-urgent headlines from higher-priority publishers."""
+    if source_priority(publisher) < 85 or len(clean_text(title, 300)) < 8:
+        return False
+    try:
+        parsed_url = urlsplit((article_url or "").strip())
+        if parsed_url.scheme != "https" or not parsed_url.netloc:
+            return False
+    except Exception:
+        return False
+    if published_timestamp is None:
+        return False
+    current_time = float(now if now is not None else datetime.now(timezone.utc).timestamp())
+    age_seconds = current_time - float(published_timestamp)
+    if age_seconds < -7200 or age_seconds > 12 * 3600:
+        return False
+    is_breaking, _ = detect_breaking_news(title, "", publisher, published_timestamp, now=current_time)
+    return not is_breaking
+
+
+def _build_non_ai_headline_post(title, article_url):
+    """Create a transparent link notice; never copy or summarize article text."""
+    headline = clean_text(title, 260)
+    return (
+        "📰 समाचार अपडेट (AI सारांश उपलब्ध छैन)\n\n"
+        f"{headline}\n\n"
+        "यो सूचना मूल समाचारको शीर्षक र लिंकमा मात्र आधारित छ। "
+        f"थप विवरणका लागि मूल समाचार खोल्नुहोस्: {article_url}\n\n"
+        "📰"
+    )
+
+
+def _publish_non_ai_headline(item_id, title, publisher, article_url, published_timestamp=None,
+                             on_new_draft=None, result=None):
+    """Save/publish a clearly labelled headline-only notice during AI provider outages."""
+    if os.getenv("ENABLE_NON_AI_HEADLINE_PUBLISHING", "true").strip().lower() != "true":
+        return False
+    if not _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp):
+        return False
+    try:
+        daily_limit = int(os.getenv("MAX_NON_AI_HEADLINE_POSTS_PER_DAY", "10"))
+    except (TypeError, ValueError):
+        daily_limit = 10
+    daily_limit = max(1, min(daily_limit, 30))
+    if count_non_ai_headline_posts_today() >= daily_limit:
+        if result is not None:
+            result["non_ai_fallback_skipped"] += 1
+        return False
+
+    post_text = _build_non_ai_headline_post(title, article_url)
+    verification = assess_cross_source_coverage(title, publisher)
+    save_draft(
+        item_id, title, publisher, article_url, post_text,
+        language="ne", verification=verification, category="स्रोत शीर्षक",
+        is_breaking=False, breaking_reason="",
+    )
+    if on_new_draft:
+        try:
+            on_new_draft({"title": title, "source": publisher})
+        except Exception:
+            log.exception("Could not publish non-AI headline progress to dashboard")
+    set_draft_status(item_id, "draft")
+    remember(item_id, title, publisher, article_url, "draft")
+    complete_pending_story(item_id)
+    if result is not None:
+        result["drafts_saved"] += 1
+        result["new_items"] += 1
+        result["non_ai_fallback_drafts"] += 1
+
+    if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
+        try:
+            published = publish_text(post_text)
+            if published.get("published"):
+                set_draft_status(item_id, "published")
+                remember(item_id, title, publisher, article_url, "published")
+                if result is not None:
+                    result["published"] += 1
+                    result["non_ai_fallback_published"] += 1
+        except Exception as exc:
+            log.exception("Facebook headline-only fallback publishing failed for %s", publisher)
+            if result is not None:
+                result["errors"].append(
+                    f"{publisher} headline-only publish failed: {type(exc).__name__}: {str(exc)[:140]}"
+                )
+    return True
+
+
 def _provider_failure_pauses_scan(error_text, result):
     if "GEMINI_BUDGET_PAUSED" in error_text:
         result["ai_budget_paused"] = True
@@ -367,7 +456,8 @@ def check_feeds(on_new_draft=None):
         "ai_requests": 0, "ai_writes": 0, "ai_limit_reached": False,
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
         "feed_details": [], "queued_for_retry": 0, "pending_processed": 0,
-        "pending_expired": 0,
+        "pending_expired": 0, "non_ai_fallback_drafts": 0,
+        "non_ai_fallback_published": 0, "non_ai_fallback_skipped": 0,
     }
     if not feeds:
         result["errors"].append("No RSS feeds configured.")
@@ -380,6 +470,7 @@ def check_feeds(on_new_draft=None):
     # Groq request/token pauses do not stop the scan: write_summary can use Gemini.
     # The shared daily post ceiling still stops additional AI drafting. 
     ai_paused_for_scan = bool(not usage_at_start["posts_remaining"])
+    provider_fallback_active = False
     if ai_paused_for_scan:
         result["ai_budget_paused"] = True
         result["ai_budget_reason"] = "Daily NayaDrishti news-post ceiling reached."
@@ -389,6 +480,18 @@ def check_feeds(on_new_draft=None):
     # longer waits (15m, 30m, 1h, 2h, 4h, 8h, 12h, then 24h).
     if not ai_paused_for_scan:
         for queued in get_due_pending_stories(limit=ai_request_limit):
+            if provider_fallback_active:
+                published_at = queued.get("published_at")
+                published_timestamp = published_at.timestamp() if published_at else None
+                used_fallback = _publish_non_ai_headline(
+                    queued["item_id"], queued["title"], queued["source"], queued["url"],
+                    published_timestamp=published_timestamp, on_new_draft=on_new_draft, result=result,
+                )
+                if used_fallback:
+                    result["pending_processed"] += 1
+                else:
+                    retry_pending_story(queued["item_id"], "AI providers unavailable; waiting for AI recovery because headline-only fallback was not eligible.")
+                continue
             if result["ai_requests"] >= ai_request_limit:
                 result["ai_limit_reached"] = True
                 break
@@ -433,7 +536,16 @@ def check_feeds(on_new_draft=None):
                 log.warning("Queued story retry failed for %s: %s", queued.get("title", "")[:100], exc)
                 if _provider_failure_pauses_scan(str(exc), result):
                     ai_paused_for_scan = True
-                    break
+                    provider_fallback_active = True
+                    published_at = queued.get("published_at")
+                    published_timestamp = published_at.timestamp() if published_at else None
+                    if _publish_non_ai_headline(
+                        queued["item_id"], queued["title"], queued["source"], queued["url"],
+                        published_timestamp=published_timestamp, on_new_draft=on_new_draft, result=result,
+                    ):
+                        result["pending_processed"] += 1
+                    else:
+                        retry_pending_story(queued["item_id"], "AI providers unavailable; waiting for AI recovery because headline-only fallback was not eligible.")
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
@@ -508,6 +620,14 @@ def check_feeds(on_new_draft=None):
                 if (result["ai_requests"] >= ai_request_limit or ai_paused_for_scan):
                     if result["ai_requests"] >= ai_request_limit:
                         result["ai_limit_reached"] = True
+                    if provider_fallback_active:
+                        if _publish_non_ai_headline(
+                            item_id, title, publisher, article_url,
+                            published_timestamp=timestamp, on_new_draft=on_new_draft, result=result,
+                        ):
+                            detail["new_items"] += 1
+                        else:
+                            retry_pending_story(item_id, "AI providers unavailable; waiting for AI recovery because headline-only fallback was not eligible.")
                     if detail["queued_items"] >= per_feed_limit or result["queued_for_retry"] >= 30:
                         break
                     continue
@@ -531,6 +651,12 @@ def check_feeds(on_new_draft=None):
                     retry_pending_story(item_id, error_text)
                     if _provider_failure_pauses_scan(error_text, result):
                         ai_paused_for_scan = True
+                        provider_fallback_active = True
+                        if _publish_non_ai_headline(
+                            item_id, title, publisher, article_url,
+                            published_timestamp=timestamp, on_new_draft=on_new_draft, result=result,
+                        ):
+                            detail["new_items"] += 1
                     continue
 
                 _publish_processed_story(
