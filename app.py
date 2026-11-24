@@ -185,7 +185,7 @@ async function loadGroqUsage(){
   const response=await fetch("/groq-usage",{credentials:"same-origin",cache:"no-store"});
   if(!response.ok)throw new Error("Usage status unavailable");
   const u=await response.json();
-  target.textContent="Today ("+u.date+"): "+u.posts_created+"/"+u.post_limit+" AI drafts · "+u.requests+"/"+u.request_limit+" requests · "+u.tokens.toLocaleString()+" / "+u.token_limit.toLocaleString()+" tokens"+(u.paused?" · PAUSED: "+(u.pause_reason||"daily safety limit"):" · ACTIVE");
+  target.textContent="Today ("+u.date+"): "+u.posts_created+"/"+u.post_limit+" AI drafts · Groq "+u.requests+"/"+u.request_limit+" requests · Gemini backup "+(u.fallback_requests||0)+" requests / "+(u.fallback_posts_created||0)+" drafts · "+u.tokens.toLocaleString()+" / "+u.token_limit.toLocaleString()+" Groq tokens"+(u.paused?" · Groq PAUSED: "+(u.pause_reason||"daily safety limit"):" · Groq ACTIVE");
  }catch(error){target.textContent="Could not load Groq usage status."}
 }
 function renderFeedHealth(data){
