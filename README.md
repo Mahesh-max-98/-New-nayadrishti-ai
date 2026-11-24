@@ -50,14 +50,18 @@ Required:
 
 Optional:
 - `GROQ_API_KEY_2`, `GROQ_API_KEY_3` (optional backup credentials; used only when an earlier key is rejected with an authentication error; duplicate values are ignored)\n- `GROQ_MODEL` (default: `openai/gpt-oss-120b`)
-- `GROQ_MAX_ARTICLE_CHARS` (default: 1200; maximum accepted: 2000)
+- `GEMINI_API_KEY` (optional backup provider key)
+- `GEMINI_MODEL` (default: `gemini-3.8-flash`)
+- `MAX_FALLBACK_AI_REQUESTS_PER_DAY` (default: 50)
+- `MAX_NEWS_POSTS_PER_DAY` (default: 100)
+- `GROQ_MAX_ARTICLE_CHARS` (default: 1000; maximum accepted: 2000)
 - `GROQ_MIN_REQUEST_INTERVAL_SECONDS` (default: 15; serializes requests to protect free-tier rate limits)
-- `MAX_AI_REQUESTS_PER_SCAN` (default: 3; maximum: 5; unprocessed stories remain eligible for later scans)
+- `MAX_AI_REQUESTS_PER_SCAN` (default: 5; maximum: 5; unprocessed stories remain eligible for later scans)
 - `NEWS_FEEDS`
 - `NEWS_MAX_AGE_HOURS` (default: 36; maximum accepted: 168)
 - `MAX_STORIES_PER_FEED` (default: 2; maximum accepted: 5)
 - `ENABLE_AUTO_MONITORING` (default: true)
-- `NEWS_CHECK_INTERVAL_SECONDS` (default: 600; minimum: 600)
+- `NEWS_CHECK_INTERVAL_SECONDS` (default: 300; minimum: 60)
 - `ENABLE_FACEBOOK_PUBLISHING` (default: false)
 - `FB_PAGE_ID` / `FACEBOOK_PAGE_ID`
 - `FB_PAGE_ACCESS_TOKEN` / `FACEBOOK_PAGE_ACCESS_TOKEN`
