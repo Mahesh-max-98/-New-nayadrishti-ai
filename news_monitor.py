@@ -430,34 +430,40 @@ def _build_non_ai_headline_post(title, publisher=""):
 
 def _save_short_source_headline_for_review(item_id, title, publisher, article_url,
                                            published_timestamp=None, on_new_draft=None, result=None):
-    """Keep fresh headline-only items visible for manual review; never auto-publish them."""
-    headline = clean_text(title, 260)
-    if not headline or not article_url.startswith(("https://", "http://")):
+    """Reject headline-only drafts: every news post must contain useful source details."""
+    if result is not None:
+        result["short_source_skipped"] = result.get("short_source_skipped", 0) + 1
+    log.info("Not saving a one-line headline draft because source details are insufficient: %s", clean_text(title, 160))
+    return False
+
+
+def _save_undated_review_summary(item_id, title, publisher, article_url, source_text,
+                                 on_new_draft=None, result=None):
+    """Save a multi-line extractive draft for manual review when RSS has no date."""
+    post_text = _build_non_ai_summary_post(title, source_text)
+    if not post_text:
+        if result is not None:
+            result["undated_skipped"] += 1
         return False
-    post_text = _build_non_ai_headline_post(headline, publisher)
-    is_breaking, breaking_reason = detect_breaking_news(
-        headline, "", publisher, published_timestamp
-    )
-    verification = assess_cross_source_coverage(headline, publisher)
+    verification = assess_cross_source_coverage(title, publisher)
     save_draft(
-        item_id, headline, publisher, article_url, post_text,
-        language="ne", verification=verification, category="स्रोत शीर्षक",
-        is_breaking=is_breaking, breaking_reason=breaking_reason,
+        item_id, title, publisher, article_url, post_text,
+        language="ne", verification=verification, category="मिति अपुष्ट",
+        is_breaking=False, breaking_reason="",
     )
     if on_new_draft:
         try:
-            on_new_draft({"title": headline, "source": publisher})
+            on_new_draft({"title": title, "source": publisher})
         except Exception:
-            log.exception("Could not publish short-source headline to dashboard")
+            log.exception("Could not publish undated review draft to dashboard")
     set_draft_status(item_id, "draft")
-    remember(item_id, headline, publisher, article_url, "draft")
+    remember(item_id, title, publisher, article_url, "draft")
     if result is not None:
         result["drafts_saved"] += 1
         result["new_items"] += 1
-        result["short_source_review_drafts"] = result.get("short_source_review_drafts", 0) + 1
-        if is_breaking:
-            result["breaking_candidates"] += 1
+        result["undated_review_drafts"] += 1
     return True
+
 
 
 def _publish_non_ai_headline(item_id, title, publisher, article_url, article_text="",
@@ -547,7 +553,7 @@ def check_feeds(on_new_draft=None, on_progress=None):
         "pending_expired": 0, "non_ai_fallback_drafts": 0,
         "non_ai_fallback_published": 0, "non_ai_fallback_skipped": 0,
         "undated_review_candidates": 0, "undated_review_drafts": 0,
-        "article_fetches": 0, "feeds_processed": 0,
+        "short_source_skipped": 0, "article_fetches": 0, "feeds_processed": 0,
     }
     if not feeds:
         result["errors"].append("No RSS feeds configured.")
@@ -667,8 +673,8 @@ def check_feeds(on_new_draft=None, on_progress=None):
         detail = {
             "source": feed_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
-            "undated_review_drafts": 0, "fresh_candidates": 0,
-            "error": None, "story_errors": 0,
+            "undated_review_drafts": 0, "short_source_skipped": 0,
+            "fresh_candidates": 0, "error": None, "story_errors": 0,
             "priority": source_priority_label(feed_name),
         }
         try:
@@ -721,14 +727,19 @@ def check_feeds(on_new_draft=None, on_progress=None):
                 # Undated items can be reviewed by a person but are never queued
                 # for AI auto-publishing because their freshness cannot be verified.
                 if undated:
-                    if _save_short_source_headline_for_review(
-                        item_id, title, publisher, article_url,
-                        published_timestamp=None,
+                    undated_text = rss_description
+                    if len(undated_text) < 180 and article_fetches < article_fetch_limit:
+                        article_fetches += 1
+                        result["article_fetches"] = article_fetches
+                        undated_text = fetch_article_text(article_url, rss_description)
+                    if _save_undated_review_summary(
+                        item_id, title, publisher, article_url, undated_text,
                         on_new_draft=on_new_draft, result=result,
                     ):
                         detail["new_items"] += 1
                         detail["undated_review_drafts"] += 1
-                        result["undated_review_drafts"] += 1
+                    else:
+                        detail["undated_skipped"] += 1
                     continue
 
                 # Save the source material before attempting AI writing. If both
@@ -743,13 +754,12 @@ def check_feeds(on_new_draft=None, on_progress=None):
                 else:
                     article_text = rss_description
                 if len(article_text) < 80:
-                    log.info("Saving headline-only item for manual review; source text is too short: %s", title)
-                    if _save_short_source_headline_for_review(
+                    _save_short_source_headline_for_review(
                         item_id, title, publisher, article_url,
                         published_timestamp=timestamp,
                         on_new_draft=on_new_draft, result=result,
-                    ):
-                        detail["new_items"] += 1
+                    )
+                    detail["short_source_skipped"] += 1
                     continue
                 published_at = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp else None
                 enqueue_pending_story(
