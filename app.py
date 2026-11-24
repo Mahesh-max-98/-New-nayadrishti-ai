@@ -7,7 +7,7 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status
+from database import get_drafts, init_db, set_draft_status, get_pending_queue_status
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 
@@ -149,7 +149,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Automatic checks run from 5:00 AM through 10:55 PM Nepal time while the Render service is awake. Render's free service may sleep after inactivity, so checks can pause until it wakes.</p>
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
-<section class="panel"><h3>Groq usage protection</h3><div id="groq-usage" class="small">Loading daily usage...</div><p class="small">Safety budgets are tracked using Nepal time. AI writing pauses automatically when a budget is reached; RSS feed checks continue. This protects NayaDrishti, but cannot change Groq account limits.</p></section>
+<section class="panel"><h3>Groq usage protection</h3><div id="groq-usage" class="small">Loading daily usage...</div><p class="small">Safety budgets are tracked using Nepal time. If both AI providers are unavailable, eligible stories are saved in a persistent recovery queue and retried with longer intervals for up to 7 days. Stories older than 72 hours are not auto-published, to avoid posting stale news. RSS feed checks continue. This cannot override provider quotas.</p></section>
 <button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div></details>
 <section class="panel"><h2>Facebook publishing</h2>
@@ -185,7 +185,8 @@ async function loadGroqUsage(){
   const response=await fetch("/groq-usage",{credentials:"same-origin",cache:"no-store"});
   if(!response.ok)throw new Error("Usage status unavailable");
   const u=await response.json();
-  target.textContent="Today ("+u.date+"): "+u.posts_created+"/"+u.post_limit+" AI drafts · Groq "+u.requests+"/"+u.request_limit+" requests · Gemini backup "+(u.fallback_requests||0)+" requests / "+(u.fallback_posts_created||0)+" drafts · "+u.tokens.toLocaleString()+" / "+u.token_limit.toLocaleString()+" Groq tokens"+(u.paused?" · Groq PAUSED: "+(u.pause_reason||"daily safety limit"):" · Groq ACTIVE")+(u.fallback_configured?(u.fallback_paused?" · Gemini COOLING DOWN: "+(u.fallback_pause_reason||"temporary provider error"):" · Gemini READY"):" · Gemini NOT CONFIGURED");
+  const q=u.pending_queue||{};
+  target.textContent="Today ("+u.date+"): "+u.posts_created+"/"+u.post_limit+" AI drafts · Groq "+u.requests+"/"+u.request_limit+" requests · Gemini backup "+(u.fallback_requests||0)+" requests / "+(u.fallback_posts_created||0)+" drafts · "+u.tokens.toLocaleString()+" / "+u.token_limit.toLocaleString()+" Groq tokens"+(u.paused?" · Groq PAUSED: "+(u.pause_reason||"daily safety limit"):" · Groq ACTIVE")+(u.fallback_configured?(u.fallback_paused?" · Gemini COOLING DOWN: "+(u.fallback_pause_reason||"temporary provider error"):" · Gemini READY"):" · Gemini NOT CONFIGURED")+" · Recovery queue: "+(q.pending||0)+" waiting, "+(q.due||0)+" ready to retry, "+(q.expired||0)+" expired.";
  }catch(error){target.textContent="Could not load Groq usage status."}
 }
 function renderFeedHealth(data){
@@ -360,7 +361,9 @@ def update_draft_status(item_id):
 @login_required
 def groq_usage():
     """Expose daily Groq budget counters only to signed-in administrators."""
-    return jsonify(get_groq_usage_status())
+    status = get_groq_usage_status()
+    status["pending_queue"] = get_pending_queue_status()
+    return jsonify(status)
 
 
 @app.get("/health")
