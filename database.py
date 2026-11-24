@@ -592,6 +592,59 @@ def get_news_source_health(limit=100):
         """, (max(1, min(int(limit), 200)),)).fetchall()
         return [dict(row) for row in rows]
 
+
+def get_database_recovery_health():
+    """Read-only integrity overview for core news tables; does not claim backup availability."""
+    required_tables = (
+        "seen_items",
+        "drafts",
+        "pending_stories",
+        "facebook_publications",
+        "facebook_publishing_control",
+        "news_source_health",
+    )
+    with connection() as db:
+        metadata = db.execute("""
+            SELECT current_database() AS database_name,
+                   current_setting('server_version') AS postgres_version,
+                   pg_database_size(current_database())::BIGINT AS database_size_bytes,
+                   (SELECT COUNT(*)::INTEGER
+                    FROM information_schema.tables
+                    WHERE table_schema='public' AND table_type='BASE TABLE') AS table_count
+        """).fetchone()
+        existing = {
+            row["table_name"] for row in db.execute("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema='public' AND table_type='BASE TABLE'
+            """).fetchall()
+        }
+        table_status = []
+        for table_name in required_tables:
+            row_count = None
+            if table_name in existing:
+                # Identifiers come only from the fixed allowlist above.
+                row = db.execute(f"SELECT COUNT(*)::BIGINT AS row_count FROM {table_name}").fetchone()
+                row_count = int(row["row_count"])
+            table_status.append({
+                "name": table_name,
+                "present": table_name in existing,
+                "row_count": row_count,
+            })
+
+    missing = [item["name"] for item in table_status if not item["present"]]
+    return {
+        "status": "warning" if missing else "healthy",
+        "database_name": metadata["database_name"],
+        "postgres_version": metadata["postgres_version"],
+        "database_size_bytes": int(metadata["database_size_bytes"]),
+        "table_count": int(metadata["table_count"]),
+        "required_tables": table_status,
+        "missing_tables": missing,
+        "backup_verified": False,
+        "note": "This is a read-only database integrity check. It does not verify that a restorable backup exists.",
+    }
+
+
 def get_news_analytics():
     """Return privacy-safe aggregate dashboard metrics without exposing story content."""
     with connection() as db:
