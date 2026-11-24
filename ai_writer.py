@@ -2,6 +2,8 @@ import os
 import re
 import threading
 import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
 
 import requests
@@ -12,7 +14,110 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 _GROQ_REQUEST_LOCK = threading.Lock()
 _LAST_GROQ_REQUEST_AT = 0.0
+
 MAX_ARTICLE_CHARS = 1000
+_NPT = ZoneInfo("Asia/Kathmandu")
+_KEY_STATE_LOCK = threading.Lock()
+_KEY_COOLDOWNS = {}
+_NEXT_KEY_INDEX = 0
+
+
+def _configured_groq_keys():
+    """Return unique configured Groq keys in primary-to-backup order."""
+    keys = []
+    for name in ("GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3"):
+        value = os.getenv(name, "").strip()
+        if value and value not in keys:
+            keys.append(value)
+    return keys
+
+
+def _key_cooldown_seconds(detail, status_code):
+    """Return cooldown seconds; -1 means until the next Nepal calendar day."""
+    if status_code == 429 and re.search(
+        r"(per day|daily|requests per day|tokens per day|RPD|TPD|per-day)",
+        detail, re.IGNORECASE
+    ):
+        now = datetime.now(_NPT)
+        tomorrow = now.date() + timedelta(days=1)
+        reset = datetime.combine(tomorrow, datetime.min.time(), tzinfo=_NPT)
+        return max(60, int((reset - now).total_seconds()))
+    if status_code == 429:
+        return_after = re.search(r"retry[- ]after[: ]+([0-9.]+)", detail, re.IGNORECASE)
+        try:
+            return max(30, min(int(float(return_after.group(1))), 3600)) if return_after else 60
+        except (TypeError, ValueError):
+            return 60
+    if status_code in (401, 403):
+        return 300
+    return 0
+
+
+def groq_key_status():
+    """Expose safe key-slot status without ever returning API key material."""
+    keys = _configured_groq_keys()
+    now = time.time()
+    with _KEY_STATE_LOCK:
+        return [
+            {
+                "slot": index + 1,
+                "configured": True,
+                "cooling_down": _KEY_COOLDOWNS.get(index, 0) > now,
+                "available_in_seconds": max(0, int(_KEY_COOLDOWNS.get(index, 0) - now)),
+            }
+            for index, _ in enumerate(keys)
+        ]
+
+
+def _post_to_groq_with_failover(payload, timeout=45):
+    """Try configured keys in rotation and fail over on per-key auth/rate limits."""
+    global _NEXT_KEY_INDEX
+    keys = _configured_groq_keys()
+    if not keys:
+        raise RuntimeError(
+            "No Groq API key is configured. Set GROQ_API_KEY and optional backup keys."
+        )
+
+    with _KEY_STATE_LOCK:
+        start = _NEXT_KEY_INDEX % len(keys)
+        _NEXT_KEY_INDEX = (_NEXT_KEY_INDEX + 1) % len(keys)
+        now = time.time()
+        order = [(start + offset) % len(keys) for offset in range(len(keys))]
+        available = [i for i in order if _KEY_COOLDOWNS.get(i, 0) <= now]
+
+    if not available:
+        waits = [_KEY_COOLDOWNS.get(i, now) - now for i in range(len(keys))]
+        wait_seconds = max(1, int(min(waits))) if waits else 60
+        raise RuntimeError(
+            f"GROQ_KEYS_EXHAUSTED: All configured Groq keys are temporarily unavailable; "
+            f"retry in about {wait_seconds} seconds."
+        )
+
+    last_detail = ""
+    for index in available:
+        response = _post_to_groq(
+            headers={
+                "Authorization": f"Bearer {keys[index]}",
+                "Content-Type": "application/json",
+            },
+            payload=payload,
+            timeout=timeout,
+        )
+        if response.ok:
+            return response
+        if response.status_code in (429, 401, 403):
+            detail = str(getattr(response, "text", ""))[:450].replace("\\n", " ").replace("\\r", " ")
+            cooldown = _key_cooldown_seconds(detail, response.status_code)
+            with _KEY_STATE_LOCK:
+                _KEY_COOLDOWNS[index] = time.time() + cooldown
+            last_detail = f"key slot {index + 1}: HTTP {response.status_code}"
+            continue
+        return response
+
+    raise RuntimeError(
+        "GROQ_KEYS_EXHAUSTED: Every configured Groq key returned a rate-limit or "
+        f"authentication error ({last_detail}). No key values were logged."
+    )
 
 
 def _bounded_article_text(description):
@@ -143,10 +248,9 @@ def prepare_news_post(content, source_name=""):
 
 def write_summary(title, description, source_name, article_url):
     """Write a factual Nepali news post and validate it before saving."""
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY is not configured.")
+    if not _configured_groq_keys():
+        raise RuntimeError("No Groq API key is configured. Set GROQ_API_KEY.")
 
     article_text = _bounded_article_text(description)
     if len(article_text) < 80:
@@ -178,8 +282,7 @@ def write_summary(title, description, source_name, article_url):
 
     actual_tokens = 0
     try:
-        response = _post_to_groq(
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        response = _post_to_groq_with_failover(
             payload={
                 "model": model,
                 "messages": [
