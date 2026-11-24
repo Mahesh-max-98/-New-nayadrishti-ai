@@ -353,6 +353,7 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
         item_id, title, publisher, article_url, post_text,
         language="ne", verification=verification, category=category,
         is_breaking=is_breaking, breaking_reason=breaking_reason,
+        article_text=article_text,
     )
     if on_new_draft:
         try:
@@ -482,6 +483,7 @@ def _save_undated_review_summary(item_id, title, publisher, article_url, source_
         item_id, title, publisher, article_url, post_text,
         language="ne", verification=verification, category="मिति अपुष्ट",
         is_breaking=False, breaking_reason="",
+        article_text=source_text,
     )
     if on_new_draft:
         try:
