@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
@@ -13,8 +14,10 @@ from urllib.parse import urlencode, urlsplit
 import feedparser
 import requests
 
+from source_health import classify_feed_health
+
 from ai_writer import write_summary
-from database import begin_facebook_publication, finish_facebook_publication, already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today, get_facebook_publishing_control, set_facebook_publishing_blocked
+from database import begin_facebook_publication, finish_facebook_publication, already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today, get_facebook_publishing_control, set_facebook_publishing_blocked, record_news_source_health
 from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text, FacebookPublishError
 
@@ -206,6 +209,9 @@ def fetch_feed(url):
     )
     response.raise_for_status()
     parsed = feedparser.parse(response.content)
+    parsed["http_status"] = int(response.status_code)
+    parsed["final_url"] = response.url
+    parsed["content_type"] = response.headers.get("Content-Type", "")[:100]
     if parsed.bozo and not parsed.entries:
         raise ValueError("The URL did not return a readable RSS/Atom feed.")
     return parsed
@@ -698,6 +704,10 @@ def check_feeds(on_new_draft=None, on_progress=None):
                 log.exception("Could not update news-check progress")
         if result["ai_requests"] >= ai_request_limit:
             result["ai_limit_reached"] = True
+        feed_started = time.monotonic()
+        feed_health_status = "error"
+        feed_http_status = None
+        feed_health_error = ""
         detail = {
             "source": feed_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
@@ -707,6 +717,12 @@ def check_feeds(on_new_draft=None, on_progress=None):
         }
         try:
             parsed = feed_futures[(feed_name, feed_url)].result()
+            feed_http_status = parsed.get("http_status")
+            feed_health_status = classify_feed_health(parsed=parsed)
+            if feed_health_status == "warning":
+                feed_health_error = "Feed parsed with a format warning; entries were still available."
+            detail["http_status"] = feed_http_status
+            detail["health_status"] = feed_health_status
             result["feeds_checked"] += 1
             entries = sorted(
                 parsed.entries,
@@ -873,10 +889,22 @@ def check_feeds(on_new_draft=None, on_progress=None):
         except Exception as exc:
             log.exception("Feed processing failed for %s", feed_name)
             detail["error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            feed_health_error = detail["error"]
+            feed_health_status = "error"
+            detail["health_status"] = feed_health_status
             detail["status"] = "error"
             result["feed_errors"] += 1
             result["errors"].append(f"{feed_name}: {detail['error']}")
         finally:
+            detail["duration_ms"] = int((time.monotonic() - feed_started) * 1000)
+            try:
+                record_news_source_health(
+                    feed_name, feed_health_status, http_status=feed_http_status,
+                    entries_found=detail.get("entries_found", 0),
+                    duration_ms=detail["duration_ms"], error=feed_health_error,
+                )
+            except Exception:
+                log.exception("Could not persist health for news source %s", feed_name)
             result["feed_details"].append(detail)
             result["feeds_processed"] = feed_index
             if on_progress:
