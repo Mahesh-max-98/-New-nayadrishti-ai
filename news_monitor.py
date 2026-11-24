@@ -788,7 +788,9 @@ def check_feeds(on_new_draft=None, on_progress=None):
                         article_text=article_text, published_timestamp=timestamp,
                         on_new_draft=on_new_draft, result=result,
                     )
-                    if not posted_or_saved:
+                    if posted_or_saved:
+                        result["short_source_drafts"] += 1
+                    else:
                         posted_or_saved = _save_short_source_headline_for_review(
                             item_id, title, publisher, article_url,
                             published_timestamp=timestamp,
@@ -797,7 +799,6 @@ def check_feeds(on_new_draft=None, on_progress=None):
                     if posted_or_saved:
                         detail["new_items"] += 1
                         detail["short_source_drafts"] = detail.get("short_source_drafts", 0) + 1
-                        result["short_source_drafts"] += 1
                     else:
                         detail["short_source_skipped"] += 1
                     continue
