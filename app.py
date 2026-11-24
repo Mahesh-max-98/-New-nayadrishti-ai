@@ -4,9 +4,11 @@ import threading
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps
+import csv
+import io
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
+from flask import Flask, Response, jsonify, redirect, render_template_string, request, session, url_for
 
 from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
 from groq_budget import get_groq_usage_status
@@ -207,6 +209,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 </section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
 <p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
+<p class="small"><a href="/export-drafts.csv">Download pending drafts as CSV</a> · Includes draft text and source links for your private editorial records.</p>
 <form class="filters" method="get" action="/">
 <label for="draft-search">Search news</label><input id="draft-search" name="q" type="search" value="{{ search_query }}" placeholder="Search headline or news text..." style="width:min(100%,320px);margin:0">
 <label for="category">Category</label><select id="category" name="category"><option value="">All categories ({{ total_drafts }})</option>{% for category in category_options %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }} ({{ category_counts.get(category, 0) }})</option>{% endfor %}</select>
@@ -569,6 +572,29 @@ def update_draft_status(item_id):
     set_draft_status(item_id, status)
     message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
     return redirect(url_for("home", notice=message))
+
+
+@app.get("/export-drafts.csv")
+@login_required
+def export_pending_drafts():
+    """Export pending editorial drafts for the signed-in admin; never publishes them."""
+    drafts = get_drafts(limit=5000)
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["headline", "nepali_draft", "category", "publisher", "original_article_url", "created_at"])
+    for draft in drafts:
+        writer.writerow([
+            draft.get("title") or "",
+            draft.get("summary") or "",
+            draft.get("category") or "",
+            draft.get("source") or "",
+            draft.get("url") or "",
+            draft.get("created_at").isoformat() if hasattr(draft.get("created_at"), "isoformat") else (draft.get("created_at") or ""),
+        ])
+    response = Response("\ufeff" + output.getvalue(), mimetype="text/csv; charset=utf-8")
+    response.headers["Content-Disposition"] = 'attachment; filename="nayadrishti-pending-drafts.csv"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/database-health")
