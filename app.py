@@ -1,4 +1,5 @@
 import os
+import hmac
 import threading
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -369,6 +370,39 @@ def groq_usage():
 @app.get("/health")
 def health():
     return jsonify(status="ok", service="NayaDrishti AI", mode="text_only")
+
+
+@app.post("/scheduled-check")
+def external_scheduled_check():
+    """Allow the independent GitHub Actions scheduler to start a news check."""
+    expected = os.getenv("SCHEDULER_SHARED_SECRET", "").strip()
+    authorization = request.headers.get("Authorization", "")
+    supplied = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        return jsonify(error="Unauthorized scheduler request."), 401
+
+    # Keep the same Nepal daytime window as the in-process scheduler.
+    local_now = datetime.now(ZoneInfo("Asia/Kathmandu"))
+    if not (5 <= local_now.hour <= 22 and (local_now.hour < 22 or local_now.minute <= 55)):
+        return jsonify(status="outside_schedule", timezone="Asia/Kathmandu"), 200
+
+    if not _feed_execution_lock.acquire(blocking=False):
+        with _check_lock:
+            return jsonify(status="already_running", check=_check_status), 202
+
+    with _check_lock:
+        started = datetime.now(timezone.utc).isoformat()
+        _check_status.update({
+            "running": True, "finished": False, "result": None, "error": None,
+            "started_at": started, "finished_at": None, "trigger": "github_actions",
+            "new_drafts": 0, "last_draft": None,
+        })
+
+    thread = threading.Thread(
+        target=_run_check, args=("github_actions", True), daemon=True,
+    )
+    thread.start()
+    return jsonify(status="started", trigger="github_actions"), 202
 
 
 @app.route("/run-check", methods=["GET", "POST"])

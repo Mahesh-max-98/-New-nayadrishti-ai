@@ -152,3 +152,18 @@ The queue does not create a post while both providers are unavailable. When eith
 If Groq and Gemini both fail during a scan, NayaDrishti can still publish a limited, clearly labelled headline notice from an eligible RSS/Google News discovery item. This is **not an AI-written summary**: the post contains only the original headline, a notice that an AI summary is unavailable, and the original article link. It does not copy the article body, invent facts, or pretend that a summary was generated.
 
 The fallback is restricted to HTTPS links, higher-priority configured publishers, dated stories no older than 12 hours, and non-breaking items. Potential breaking/emergency items are held for an AI-written summary or human review. The daily fallback cap defaults to 10 and can be adjusted with `MAX_NON_AI_HEADLINE_POSTS_PER_DAY` (maximum 30). The feature can be disabled with `ENABLE_NON_AI_HEADLINE_PUBLISHING=false`. It still requires `ENABLE_FACEBOOK_PUBLISHING=true` and valid Facebook Page credentials to publish; otherwise it saves a clearly labelled draft. Normal AI-generated posts continue to use Groq/Gemini when available.
+
+
+## Phase 17 — free external scheduler (best-effort wake-up)
+
+GitHub Actions provides an independent scheduled trigger every five minutes. The workflow checks the Asia/Kathmandu clock and sends an authenticated POST to `/scheduled-check` only from 05:00 through 22:55 Nepal time. This request can wake the Render Free web service and start the news scan after the service responds. It does **not** disable, bypass, or guarantee prevention of Render Free spin-down; GitHub scheduled workflows can also be delayed or skipped during platform load. The in-process APScheduler remains enabled as a second trigger while the web service is awake. Both triggers share the application's execution lock to avoid overlapping scans.
+
+### Required one-time setup
+
+1. Generate a long random secret (at least 32 random bytes) and keep it private.
+2. In Render → NayaDrishti → Environment, add `SCHEDULER_SHARED_SECRET` with that secret, then save so the service redeploys.
+3. In GitHub → repository Settings → Secrets and variables → Actions → New repository secret, create a secret named `SCHEDULER_SHARED_SECRET` with the exact same value.
+4. Enable GitHub Actions for this repository. The workflow is `.github/workflows/nayadrishti-scheduler.yml`.
+5. Use the workflow's **Run workflow** button once to test. A successful HTTP 202 means the scheduler request was accepted; check the NayaDrishti dashboard/logs to confirm the scan finished.
+
+The shared secret is never committed to the repository. If it is missing or mismatched, the endpoint returns HTTP 401 and does not start a scan. The external scheduler can reduce idle periods and trigger wake-ups, but it cannot promise the website is always instantly available or that every five-minute run executes exactly on time. GitHub Actions usage and schedule limits apply.
