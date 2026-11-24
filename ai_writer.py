@@ -15,7 +15,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _GROQ_REQUEST_LOCK = threading.Lock()
 _LAST_GROQ_REQUEST_AT = 0.0
 
-MAX_ARTICLE_CHARS = 1000
+MAX_ARTICLE_CHARS = 800
 _NPT = ZoneInfo("Asia/Kathmandu")
 _KEY_STATE_LOCK = threading.Lock()
 _KEY_COOLDOWNS = {}
@@ -130,7 +130,7 @@ def _bounded_article_text(description):
         limit = int(os.getenv("GROQ_MAX_ARTICLE_CHARS", str(MAX_ARTICLE_CHARS)))
     except (TypeError, ValueError):
         limit = MAX_ARTICLE_CHARS
-    limit = max(500, min(limit, 2000))
+    limit = max(400, min(limit, 1000))
     return re.sub(r"\s+", " ", description or "").strip()[:limit]
 
 
@@ -142,7 +142,7 @@ def _post_to_groq(headers, payload, timeout=45):
     with _GROQ_REQUEST_LOCK:
         for attempt in range(3):
             try:
-                interval = float(os.getenv("GROQ_MIN_REQUEST_INTERVAL_SECONDS", "15"))
+                interval = float(os.getenv("GROQ_MIN_REQUEST_INTERVAL_SECONDS", "30"))
             except (TypeError, ValueError):
                 interval = 15.0
             interval = max(0.0, min(interval, 60.0))
