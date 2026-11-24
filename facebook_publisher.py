@@ -21,7 +21,7 @@ def facebook_configuration_status():
         "enabled": enabled,
         "page_id_configured": bool(page_id),
         "page_token_configured": bool(token),
-        "ready": bool(enabled and page_id and token),
+        "credentials_present": bool(page_id and token),
     }
 
 
