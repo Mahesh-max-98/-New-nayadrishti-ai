@@ -87,7 +87,8 @@ class FacebookDuplicateProtectionTests(unittest.TestCase):
         reserve.return_value = {
             "reserved": False, "status": "unknown", "attempts": 1,
         }
-        with patch.object(news_monitor, "publish_text") as publish:
+        with patch.object(news_monitor, "get_facebook_publishing_control", return_value={"auth_blocked": False}), \
+             patch.object(news_monitor, "publish_text") as publish:
             outcome = news_monitor._publish_facebook_tracked("story-1", "post")
         publish.assert_not_called()
         self.assertEqual(outcome["status"], "unknown")
@@ -98,17 +99,32 @@ class FacebookDuplicateProtectionTests(unittest.TestCase):
     def test_success_is_recorded(self, publish, reserve, finish):
         reserve.return_value = {"reserved": True, "status": "publishing"}
         publish.return_value = {"published": True, "post_id": "page_123"}
-        with patch.object(news_monitor, "set_draft_status"), patch.object(news_monitor, "remember"):
+        with patch.object(news_monitor, "get_facebook_publishing_control", return_value={"auth_blocked": False}), \
+             patch.object(news_monitor, "set_draft_status"), patch.object(news_monitor, "remember"):
             outcome = news_monitor._publish_facebook_tracked("story-2", "post")
         self.assertEqual(outcome["status"], "published")
         finish.assert_called_once_with("story-2", "published", post_id="page_123")
+
+    @patch.object(news_monitor, "finish_facebook_publication")
+    @patch.object(news_monitor, "set_facebook_publishing_blocked")
+    @patch.object(news_monitor, "begin_facebook_publication")
+    @patch.object(news_monitor, "publish_text", side_effect=facebook_publisher.FacebookPublishError(400, "190", "Token invalid", "463"))
+    def test_auth_error_pauses_future_facebook_attempts(self, publish, reserve, block, finish):
+        reserve.return_value = {"reserved": True, "status": "publishing"}
+        with patch.object(news_monitor, "get_facebook_publishing_control", return_value={"auth_blocked": False}):
+            outcome = news_monitor._publish_facebook_tracked("story-auth", "post")
+        self.assertEqual(outcome["status"], "failed")
+        block.assert_called_once()
+        self.assertTrue(block.call_args.args[0])
+        self.assertEqual(finish.call_args.kwargs["error_code"], "190/463")
 
     @patch.object(news_monitor, "finish_facebook_publication")
     @patch.object(news_monitor, "begin_facebook_publication")
     @patch.object(news_monitor, "publish_text", side_effect=requests.Timeout("timed out"))
     def test_timeout_is_unknown_and_not_retryable(self, publish, reserve, finish):
         reserve.return_value = {"reserved": True, "status": "publishing"}
-        outcome = news_monitor._publish_facebook_tracked("story-3", "post")
+        with patch.object(news_monitor, "get_facebook_publishing_control", return_value={"auth_blocked": False}):
+            outcome = news_monitor._publish_facebook_tracked("story-3", "post")
         self.assertEqual(outcome["status"], "unknown")
         self.assertIn("Check the Page", finish.call_args.kwargs["error_message"])
 
