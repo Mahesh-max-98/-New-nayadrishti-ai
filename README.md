@@ -49,7 +49,7 @@ Required:
 - `GROQ_API_KEY`
 
 Optional:
-- `GROQ_MODEL` (default: `openai/gpt-oss-120b`)
+- `GROQ_API_KEY_2`, `GROQ_API_KEY_3` (optional backup credentials; used only when an earlier key is rejected with an authentication error; duplicate values are ignored)\n- `GROQ_MODEL` (default: `openai/gpt-oss-120b`)
 - `GROQ_MAX_ARTICLE_CHARS` (default: 1200; maximum accepted: 2000)
 - `GROQ_MIN_REQUEST_INTERVAL_SECONDS` (default: 15; serializes requests to protect free-tier rate limits)
 - `MAX_AI_REQUESTS_PER_SCAN` (default: 3; maximum: 5; unprocessed stories remain eligible for later scans)
@@ -77,6 +77,10 @@ Keep API keys, passwords, and access tokens in Render environment variables. Nev
 6. Only after the drafts are consistently accurate, set `ENABLE_FACEBOOK_PUBLISHING=true`.
 
 Facebook publishing uses the Page `/{page-id}/feed` endpoint and sends a text message only. The code defaults to publishing OFF.
+
+## Groq API key handling
+
+NayaDrishti can be configured with up to three Groq API key environment variables: `GROQ_API_KEY`, `GROQ_API_KEY_2`, and `GROQ_API_KEY_3`. The app can move to a backup key when a preceding key is rejected for an authentication error. It does not rotate keys after HTTP 429 rate-limit responses: Groq documents rate limits at the organization level, so multiple keys in one organization do not multiply its quota. Rate-limit responses are respected and handled through the existing pause logic. Keep all keys private and use only credentials you are authorized to manage.
 
 ## AI reliability and request limits
 
