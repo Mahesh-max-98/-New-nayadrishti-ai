@@ -122,49 +122,6 @@ def init_db():
         """)
 
 
-
-def get_news_analytics():
-    """Return privacy-safe aggregate dashboard metrics without exposing story content."""
-    with connection() as db:
-        totals = db.execute("""
-            SELECT
-                COUNT(*)::INTEGER AS total_drafts,
-                COUNT(*) FILTER (WHERE status='draft')::INTEGER AS waiting_review,
-                COUNT(*) FILTER (WHERE status='approved')::INTEGER AS reviewed,
-                COUNT(*) FILTER (WHERE status='rejected')::INTEGER AS dismissed,
-                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::INTEGER AS created_last_7_days
-            FROM drafts
-        """).fetchone()
-        seen = db.execute("SELECT COUNT(*)::INTEGER AS total FROM seen_items").fetchone()
-        published = db.execute(
-            "SELECT COUNT(*)::INTEGER AS total FROM facebook_publications WHERE status='published'"
-        ).fetchone()
-        sources = db.execute("""
-            SELECT
-                COUNT(*)::INTEGER AS total,
-                COUNT(*) FILTER (WHERE status='healthy')::INTEGER AS healthy,
-                COUNT(*) FILTER (WHERE status='warning')::INTEGER AS warning,
-                COUNT(*) FILTER (WHERE status='error')::INTEGER AS error
-            FROM news_source_health
-        """).fetchone()
-        categories = db.execute("""
-            SELECT COALESCE(NULLIF(category, ''), 'अन्य') AS category,
-                   COUNT(*)::INTEGER AS count
-            FROM drafts
-            WHERE status='draft'
-            GROUP BY COALESCE(NULLIF(category, ''), 'अन्य')
-            ORDER BY count DESC, category ASC
-            LIMIT 8
-        """).fetchall()
-
-    return {
-        "drafts": dict(totals or {}),
-        "discovered_items": int((seen or {}).get("total", 0)),
-        "facebook_published": int((published or {}).get("total", 0)),
-        "sources": dict(sources or {}),
-        "categories": [dict(row) for row in categories],
-    }
-
 def already_seen(item_id):
     with connection() as db:
         return db.execute(
@@ -220,8 +177,7 @@ def get_drafts(limit=50):
             FROM drafts
             WHERE status='draft'
             ORDER BY is_breaking DESC, created_at DESC
-            LIMIT %s
-        """, (limit,)).fetchall()
+            LIMIT %s        """, (limit,)).fetchall()
         return [dict(row) for row in rows]
 
 
@@ -540,4 +496,139 @@ def get_facebook_publishing_control():
 
 
 def set_facebook_publishing_blocked(blocked, reason=""):
-    """Pause publishing after auth errors; clear only after a successful connection check."""
+    """Pause publishing after auth errors; clear only after a successful connection check."""    with connection() as db:
+        db.execute("""
+            INSERT INTO facebook_publishing_control (id, auth_blocked, reason)
+            VALUES (1, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                auth_blocked=EXCLUDED.auth_blocked,
+                reason=EXCLUDED.reason,
+                updated_at=CURRENT_TIMESTAMP
+        """, (bool(blocked), (reason or "")[:300]))
+
+
+def get_facebook_publication_status(limit=30):
+    """Return safe publication counts and recent records for the admin dashboard."""
+    with connection() as db:
+        db.execute("""
+            UPDATE facebook_publications
+            SET status='unknown',
+                error_message='The app restarted before the publishing result was recorded. Check the Page before retrying.',
+                finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+            WHERE status='publishing'
+              AND started_at < CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+        """)
+        counts = db.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE status='published') AS published,
+                COUNT(*) FILTER (WHERE status='failed') AS failed,
+                COUNT(*) FILTER (WHERE status='unknown') AS unknown,
+                COUNT(*) FILTER (WHERE status='publishing') AS publishing
+            FROM facebook_publications
+        """).fetchone()
+        rows = db.execute("""
+            SELECT item_id, status, post_id, error_code, error_message,
+                   started_at, finished_at, updated_at
+            FROM facebook_publications
+            ORDER BY updated_at DESC LIMIT %s
+        """, (max(1, min(int(limit), 100)),)).fetchall()
+    return {
+        "counts": {key: int(value or 0) for key, value in counts.items()},
+        "recent": [dict(row) for row in rows],
+    }
+
+
+
+def record_news_source_health(source_name, status, http_status=None, entries_found=0, duration_ms=0, error=""):
+    """Persist the latest health result for one configured news feed."""
+    source_name = str(source_name or "Unknown source").strip()[:160]
+    status = status if status in {"healthy", "warning", "error"} else "error"
+    safe_error = str(error or "")[:300]
+    with connection() as db:
+        db.execute("""
+            INSERT INTO news_source_health (
+                source_name, status, consecutive_failures, last_checked_at,
+                last_success_at, last_http_status, last_entries_found,
+                last_duration_ms, last_error
+            ) VALUES (
+                %s, %s, %s, CURRENT_TIMESTAMP,
+                CASE WHEN %s = 'healthy' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                %s, %s, %s, %s
+            )
+            ON CONFLICT (source_name) DO UPDATE SET
+                status=EXCLUDED.status,
+                consecutive_failures=CASE
+                    WHEN EXCLUDED.status = 'healthy' THEN 0
+                    ELSE news_source_health.consecutive_failures + 1
+                END,
+                last_checked_at=CURRENT_TIMESTAMP,
+                last_success_at=CASE
+                    WHEN EXCLUDED.status = 'healthy' THEN CURRENT_TIMESTAMP
+                    ELSE news_source_health.last_success_at
+                END,
+                last_http_status=EXCLUDED.last_http_status,
+                last_entries_found=EXCLUDED.last_entries_found,
+                last_duration_ms=EXCLUDED.last_duration_ms,
+                last_error=EXCLUDED.last_error
+        """, (
+            source_name, status, 0 if status == "healthy" else 1, status,
+            http_status, max(0, int(entries_found or 0)),
+            max(0, int(duration_ms or 0)), safe_error,
+        ))
+
+
+def get_news_source_health(limit=100):
+    """Return persistent source health without exposing configured feed URLs."""
+    with connection() as db:
+        rows = db.execute("""
+            SELECT source_name, status, consecutive_failures, last_checked_at,
+                   last_success_at, last_http_status, last_entries_found,
+                   last_duration_ms, last_error
+            FROM news_source_health
+            ORDER BY CASE status WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+                     consecutive_failures DESC, source_name ASC
+            LIMIT %s
+        """, (max(1, min(int(limit), 200)),)).fetchall()
+        return [dict(row) for row in rows]
+
+def get_news_analytics():
+    """Return privacy-safe aggregate dashboard metrics without exposing story content."""
+    with connection() as db:
+        totals = db.execute("""
+            SELECT
+                COUNT(*)::INTEGER AS total_drafts,
+                COUNT(*) FILTER (WHERE status='draft')::INTEGER AS waiting_review,
+                COUNT(*) FILTER (WHERE status='approved')::INTEGER AS reviewed,
+                COUNT(*) FILTER (WHERE status='rejected')::INTEGER AS dismissed,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::INTEGER AS created_last_7_days
+            FROM drafts
+        """).fetchone()
+        seen = db.execute("SELECT COUNT(*)::INTEGER AS total FROM seen_items").fetchone()
+        published = db.execute(
+            "SELECT COUNT(*)::INTEGER AS total FROM facebook_publications WHERE status='published'"
+        ).fetchone()
+        sources = db.execute("""
+            SELECT
+                COUNT(*)::INTEGER AS total,
+                COUNT(*) FILTER (WHERE status='healthy')::INTEGER AS healthy,
+                COUNT(*) FILTER (WHERE status='warning')::INTEGER AS warning,
+                COUNT(*) FILTER (WHERE status='error')::INTEGER AS error
+            FROM news_source_health
+        """).fetchone()
+        categories = db.execute("""
+            SELECT COALESCE(NULLIF(category, ''), 'अन्य') AS category,
+                   COUNT(*)::INTEGER AS count
+            FROM drafts
+            WHERE status='draft'
+            GROUP BY COALESCE(NULLIF(category, ''), 'अन्य')
+            ORDER BY count DESC, category ASC
+            LIMIT 8
+        """).fetchall()
+
+    return {
+        "drafts": dict(totals or {}),
+        "discovered_items": int((seen or {}).get("total", 0)),
+        "facebook_published": int((published or {}).get("total", 0)),
+        "sources": dict(sources or {}),
+        "categories": [dict(row) for row in categories],
+    }
