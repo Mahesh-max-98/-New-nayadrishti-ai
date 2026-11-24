@@ -197,9 +197,10 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 <section class="panel" id="facebook-publishing-panel">
 <h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
+<p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on. Posts with uncertain results are not retried automatically; check your Page first.</p>
 
-<div id="facebook-status" class="small" role="status" aria-live="polite">Loading Facebook publishing status...</div>
-<div id="facebook-history" class="small" aria-live="polite">Loading publication history...</div>
+<div id="facebook-status" class="small" role="status" aria-live="polite">Checking Facebook configuration...</div>
+<div id="facebook-history" class="small" aria-live="polite">Loading publication totals...</div>
 <button type="button" class="secondary" id="refresh-facebook-status" onclick="loadFacebookStatus()">Refresh Facebook status</button>
 <button type="button" class="secondary" id="check-facebook-connection" onclick="checkFacebookConnection()">Check connection · read-only, no post</button>
 <div id="facebook-connection-result" class="status" role="status" aria-live="polite">Connection check has not been run.</div>
@@ -295,8 +296,8 @@ async function loadFacebookStatus(){
  const refreshButton=document.getElementById("refresh-facebook-status");
  if(!statusTarget||!historyTarget)return;
  if(refreshButton)refreshButton.disabled=true;
- statusTarget.textContent="";
- historyTarget.textContent="Loading recent publishing results...";
+ statusTarget.textContent="Checking Facebook configuration...";
+ historyTarget.textContent="Loading publication totals...";
  try{
   const response=await fetch("/facebook-status",{credentials:"same-origin",cache:"no-store",headers:{"Accept":"application/json"}});
   if(response.status===401||response.status===403)throw new Error("Your admin session has expired or lacks permission. Sign in again to view Facebook status.");
@@ -311,20 +312,7 @@ async function loadFacebookStatus(){
   statusTarget.replaceChildren(line);
   const totals=document.createElement("p");
   totals.textContent="Publication totals: "+(counts.published||0)+" published · "+(counts.failed||0)+" failed · "+(counts.unknown||0)+" uncertain · "+(counts.publishing||0)+" in progress.";
-  const heading=document.createElement("p");heading.textContent="Recent publication attempts:";
-  const list=document.createElement("ul");
-  const records=Array.isArray(history.recent)?history.recent:[];
-  if(!records.length){const empty=document.createElement("li");empty.textContent="No Facebook publication attempts have been recorded yet.";list.append(empty);}
-  records.slice(0,10).forEach(record=>{
-   const item=document.createElement("li");
-   const when=record.updated_at?new Date(record.updated_at).toLocaleString():"time unavailable";
-   item.textContent="Draft "+String(record.item_id||"—")+" · "+String(record.status||"unknown")+" · "+when+
-    (record.error_code?" · Error code: "+String(record.error_code):"")+
-    (record.error_message?" · "+String(record.error_message):"")+
-    (record.post_id?" · Facebook post ID: "+String(record.post_id):"");
-   list.append(item);
-  });
-  historyTarget.replaceChildren(totals,heading,list);
+  historyTarget.replaceChildren(totals);
  }catch(error){
   statusTarget.textContent=error.message||"Could not load Facebook configuration status.";
   historyTarget.textContent="Publication history could not be loaded. Refresh after signing in again.";
