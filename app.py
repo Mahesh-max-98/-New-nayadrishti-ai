@@ -230,7 +230,7 @@ function renderFeedHealth(data){
   const left=document.createElement('div');
   const name=document.createElement('div');name.className='feed-name';name.textContent=feed.source||'Unnamed source';
   const meta=document.createElement('div');meta.className='feed-meta';
-  meta.textContent='Priority: '+(feed.priority||'C · थप खोज')+' · Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New stories: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Undated review: '+(feed.undated_review_drafts||0)+' · Too short: '+(feed.short_source_skipped||0)+' · Undated skipped: '+(feed.undated_skipped||0);
+  meta.textContent='Priority: '+(feed.priority||'C · थप खोज')+' · Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New posts/drafts: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Short headlines saved: '+(feed.short_source_drafts||0)+' · Undated review: '+(feed.undated_review_drafts||0);
   left.append(name,meta);
   const status=document.createElement('strong');
   if(feed.error){status.className='feed-error';status.textContent='ERROR';}
@@ -277,8 +277,11 @@ async function runCheck(){
      const lines=[
       'News check complete.',
       'Sources checked: '+(data.feeds_checked||0)+' / '+(data.feeds_configured||0),
+      'RSS entries discovered across sources: '+(data.entries_found_total||0),
       'Fresh dated stories found: '+(data.fresh_candidates||0),
-      'Undated multi-line drafts saved for manual review: '+(data.undated_review_drafts||0),
+      'Short-source headline drafts saved: '+(data.short_source_drafts||0),
+      'Undated drafts saved for manual review: '+(data.undated_review_drafts||0),
+      'Sources with feed errors: '+(data.feed_errors||0),
       'Stories skipped because source text was too short: '+(data.short_source_skipped||0),
       'New drafts saved: '+(data.drafts_saved||0),
       'Potential breaking candidates: '+(data.breaking_candidates||0),
