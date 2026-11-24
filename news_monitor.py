@@ -339,7 +339,12 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
 
 def _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp=None, now=None):
     """Allow only fresh, non-urgent headlines from higher-priority publishers."""
-    if source_priority(publisher) < 85 or len(clean_text(title, 300)) < 8:
+    clean_title = clean_text(title, 300)
+    if source_priority(publisher) < 85 or len(clean_title) < 8:
+        return False
+    if len(re.findall(r"[\\u0900-\\u097F]", clean_title)) < 5:
+        return False
+    if any(keyword.casefold() in clean_title.casefold() for keyword in BREAKING_KEYWORDS):
         return False
     try:
         parsed_url = urlsplit((article_url or "").strip())
