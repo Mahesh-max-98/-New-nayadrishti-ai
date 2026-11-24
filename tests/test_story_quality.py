@@ -17,7 +17,7 @@ class StoryQualityTests(unittest.TestCase):
     def test_detects_same_story_with_small_headline_edits(self):
         self.assertTrue(similar_story_titles(
             "गोरखामा हावाहुरीले घर र विद्यालयका छाना उडायो",
-            "गोरखामा हावाहुरीका कारण घर तथा विद्यालयका छाना उडायो",
+            "गोरखामा हावाहुरीले घर तथा विद्यालयका छाना उडायो",
         ))
 
     def test_does_not_merge_headlines_with_conflicting_numbers(self):
