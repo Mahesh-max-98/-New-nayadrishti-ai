@@ -390,14 +390,14 @@ def _non_ai_headline_is_eligible(title, publisher, article_url, published_timest
 
 
 def _build_non_ai_summary_post(title, article_text):
-    """Build a 3-6 line extractive Nepali post using source text only; never invent facts."""
+    """Build a source-only post with as many factual lines as the feed provides."""
     headline = clean_text(title, 260)
     source_text = clean_text(article_text, 7000)
-    if not headline or len(source_text) < 100:
+    if not headline:
         return None
 
-    # Keep complete source sentences. This is deliberately extractive: no AI,
-    # inference, added context, or paraphrased claims are used during outages.
+    # Extract complete source sentences when available. Never pad a short feed
+    # teaser with invented details; a headline-only post is still useful.
     candidates = re.split(r"(?<=[।!?])\s+|(?<=[.!?])\s+(?=[\u0900-\u097F])", source_text)
     body_lines = []
     for candidate in candidates:
@@ -412,24 +412,45 @@ def _build_non_ai_summary_post(title, article_text):
             continue
         if line.casefold() not in [existing.casefold() for existing in body_lines]:
             body_lines.append(line)
-        if len(body_lines) == 5:
+        if len(body_lines) == 9:
             break
 
-    if len(body_lines) < 2:
-        return None
-    body_lines[-1] = body_lines[-1].rstrip(" ।.!?") + " 📰"
-    return "📰 समाचार अपडेट\n\n" + headline + "\n" + "\n".join(body_lines)
+    lines = [headline] + body_lines
+    if len(lines) > 1:
+        lines[-1] = lines[-1].rstrip(" ।.!?") + " 📰"
+    return "\n".join(lines)
 
 
 
 
 def _save_short_source_headline_for_review(item_id, title, publisher, article_url,
                                            published_timestamp=None, on_new_draft=None, result=None):
-    """Reject headline-only drafts: every news post must contain useful source details."""
+    """Save a headline-only draft when the feed supplies no usable article text."""
+    headline = clean_text(title, 260)
+    if not headline or not article_url.startswith(("https://", "http://")):
+        if result is not None:
+            result["short_source_skipped"] = result.get("short_source_skipped", 0) + 1
+        return False
+    post_text = _build_non_ai_summary_post(headline, "")
+    verification = assess_cross_source_coverage(headline, publisher)
+    is_breaking, breaking_reason = detect_breaking_news(headline, "", publisher, published_timestamp)
+    save_draft(
+        item_id, headline, publisher, article_url, post_text,
+        language="ne", verification=verification, category="स्रोत शीर्षक",
+        is_breaking=is_breaking, breaking_reason=breaking_reason,
+    )
+    if on_new_draft:
+        try:
+            on_new_draft({"title": headline, "source": publisher})
+        except Exception:
+            log.exception("Could not publish short-source progress to dashboard")
+    set_draft_status(item_id, "draft")
+    remember(item_id, headline, publisher, article_url, "draft")
     if result is not None:
-        result["short_source_skipped"] = result.get("short_source_skipped", 0) + 1
-    log.info("Not saving a one-line headline draft because source details are insufficient: %s", clean_text(title, 160))
-    return False
+        result["drafts_saved"] = result.get("drafts_saved", 0) + 1
+        result["new_items"] = result.get("new_items", 0) + 1
+        result["short_source_drafts"] = result.get("short_source_drafts", 0) + 1
+    return True
 
 
 def _save_undated_review_summary(item_id, title, publisher, article_url, source_text,
@@ -463,7 +484,7 @@ def _save_undated_review_summary(item_id, title, publisher, article_url, source_
 
 def _publish_non_ai_headline(item_id, title, publisher, article_url, article_text="",
                              published_timestamp=None, on_new_draft=None, result=None):
-    """Save/publish a source-only multi-line summary during AI provider outages."""
+    """Save/publish a source-only post using whatever factual lines are available."""
     if os.getenv("ENABLE_NON_AI_HEADLINE_PUBLISHING", "true").strip().lower() != "true":
         return False
     if not _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp):
@@ -548,7 +569,9 @@ def check_feeds(on_new_draft=None, on_progress=None):
         "pending_expired": 0, "non_ai_fallback_drafts": 0,
         "non_ai_fallback_published": 0, "non_ai_fallback_skipped": 0,
         "undated_review_candidates": 0, "undated_review_drafts": 0,
-        "short_source_skipped": 0, "article_fetches": 0, "feeds_processed": 0,
+        "short_source_skipped": 0, "short_source_drafts": 0,
+        "entries_found_total": 0, "feed_errors": 0,
+        "article_fetches": 0, "feeds_processed": 0,
     }
     if not feeds:
         result["errors"].append("No RSS feeds configured.")
@@ -558,10 +581,10 @@ def check_feeds(on_new_draft=None, on_progress=None):
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
     ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "2")), 3))
     try:
-        article_fetch_limit = int(os.getenv("MAX_ARTICLE_FETCHES_PER_SCAN", "8"))
+        article_fetch_limit = int(os.getenv("MAX_ARTICLE_FETCHES_PER_SCAN", "3"))
     except (TypeError, ValueError):
-        article_fetch_limit = 8
-    article_fetch_limit = max(0, min(article_fetch_limit, 20))
+        article_fetch_limit = 3
+    article_fetch_limit = max(0, min(article_fetch_limit, 8))
     article_fetches = 0
     usage_at_start = get_groq_usage_status()
     # Groq request/token pauses do not stop the scan: write_summary can use Gemini.
@@ -681,8 +704,19 @@ def check_feeds(on_new_draft=None, on_progress=None):
                 reverse=True,
             )
             detail["entries_found"] = len(entries)
+            result["entries_found_total"] += len(entries)
 
-            for entry in entries[:60]:
+            for story_index, entry in enumerate(entries[:60], start=1):
+                if on_progress:
+                    try:
+                        on_progress({
+                            "phase": "checking_story", "feeds_processed": feed_index - 1,
+                            "feeds_total": len(feeds), "source": feed_name,
+                            "story_index": story_index, "story_total": min(len(entries), 60),
+                            "drafts_saved": result["drafts_saved"],
+                        })
+                    except Exception:
+                        log.exception("Could not update story-level news progress")
                 if detail["new_items"] >= per_feed_limit or detail.get("queued_items", 0) >= per_feed_limit:
                     break
                 raw_title = clean_text(entry.get("title"), 300)
@@ -749,12 +783,24 @@ def check_feeds(on_new_draft=None, on_progress=None):
                 else:
                     article_text = rss_description
                 if len(article_text) < 80:
-                    _save_short_source_headline_for_review(
+                    posted_or_saved = _publish_non_ai_headline(
                         item_id, title, publisher, article_url,
-                        published_timestamp=timestamp,
+                        article_text=article_text, published_timestamp=timestamp,
                         on_new_draft=on_new_draft, result=result,
                     )
-                    detail["short_source_skipped"] += 1
+                    if posted_or_saved:
+                        result["short_source_drafts"] += 1
+                    else:
+                        posted_or_saved = _save_short_source_headline_for_review(
+                            item_id, title, publisher, article_url,
+                            published_timestamp=timestamp,
+                            on_new_draft=on_new_draft, result=result,
+                        )
+                    if posted_or_saved:
+                        detail["new_items"] += 1
+                        detail["short_source_drafts"] = detail.get("short_source_drafts", 0) + 1
+                    else:
+                        detail["short_source_skipped"] += 1
                     continue
                 published_at = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp else None
                 enqueue_pending_story(
@@ -817,6 +863,8 @@ def check_feeds(on_new_draft=None, on_progress=None):
         except Exception as exc:
             log.exception("Feed processing failed for %s", feed_name)
             detail["error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            detail["status"] = "error"
+            result["feed_errors"] += 1
             result["errors"].append(f"{feed_name}: {detail['error']}")
         finally:
             result["feed_details"].append(detail)
