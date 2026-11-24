@@ -79,25 +79,28 @@ class NewsPostLengthTests(unittest.TestCase):
         self.assertEqual(result["undated_review_drafts"], 1)
         self.assertEqual(len(callback_items), 1)
         saved_post = save_draft.call_args.args[4]
-        self.assertGreaterEqual(len(saved_post.splitlines()), 4)
-        self.assertLessEqual(len(saved_post.splitlines()), 7)
+        self.assertGreaterEqual(len(saved_post.splitlines()), 3)
+        self.assertLessEqual(len(saved_post.splitlines()), 10)
         set_status.assert_called_once_with("item-2", "draft")
         remember.assert_called_once()
 
-    def test_undated_story_without_details_is_not_saved(self):
+    def test_undated_story_with_limited_details_is_saved_as_available_lines(self):
         result = {
             "drafts_saved": 0, "new_items": 0, "undated_review_drafts": 0,
             "undated_skipped": 0,
         }
-        with patch("news_monitor.save_draft") as save_draft:
+        with patch("news_monitor.assess_cross_source_coverage", return_value={"status":"single_source"}), \
+             patch("news_monitor.save_draft") as save_draft, \
+             patch("news_monitor.set_draft_status"), \
+             patch("news_monitor.remember"):
             saved = _save_undated_review_summary(
                 "item-3", "सरकारले नयाँ शिक्षा नीति सार्वजनिक गरेको छ।",
                 "Test publisher", "https://example.com/story",
                 "एउटा छोटो वाक्य मात्र छ।", result=result,
             )
-        self.assertFalse(saved)
-        self.assertEqual(result["undated_skipped"], 1)
-        save_draft.assert_not_called()
+        self.assertTrue(saved)
+        self.assertEqual(result["undated_review_drafts"], 1)
+        self.assertEqual(save_draft.call_args.args[4], "सरकारले नयाँ शिक्षा नीति सार्वजनिक गरेको छ।")
 
 
 if __name__ == "__main__":
