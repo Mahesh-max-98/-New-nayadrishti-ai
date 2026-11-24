@@ -278,6 +278,31 @@ def enqueue_pending_story(item_id, title, source, url, article_text, published_a
         ))
 
 
+def already_pending_story(title, url, similarity_threshold=0.90):
+    """Avoid queuing the same report again from another RSS discovery feed."""
+    from difflib import SequenceMatcher
+
+    normalized_title = _normalize_story_title(title)
+    normalized_url = _normalize_story_url(url)
+    if not normalized_title:
+        return False
+    with connection() as db:
+        rows = db.execute("""
+            SELECT title, url FROM pending_stories
+            WHERE status='pending'
+            ORDER BY created_at DESC LIMIT 500
+        """).fetchall()
+    for row in rows:
+        previous_url = _normalize_story_url(row.get("url"))
+        if normalized_url and previous_url and normalized_url == previous_url:
+            return True
+        previous_title = _normalize_story_title(row.get("title"))
+        if len(normalized_title) >= 18 and len(previous_title) >= 18:
+            if SequenceMatcher(None, normalized_title, previous_title).ratio() >= similarity_threshold:
+                return True
+    return False
+
+
 def get_due_pending_stories(limit=5):
     """Return queued stories whose next retry time has arrived."""
     with connection() as db:
