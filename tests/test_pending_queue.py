@@ -20,13 +20,15 @@ class PendingStoryRetryScheduleTests(unittest.TestCase):
 
 
 class NonAiHeadlineFallbackTests(unittest.TestCase):
-    def test_short_source_headline_is_skipped_instead_of_saved_as_one_line(self):
+    def test_short_source_headline_is_saved_as_one_available_line(self):
         from unittest.mock import patch
         import news_monitor
 
-        result = {"short_source_skipped": 0}
+        result = {"short_source_skipped": 0, "short_source_drafts": 0,
+                  "drafts_saved": 0, "new_items": 0}
         callback_items = []
-        with patch.object(news_monitor, "save_draft") as save_draft, \
+        with patch.object(news_monitor, "assess_cross_source_coverage", return_value={"status":"single_source"}), \
+             patch.object(news_monitor, "save_draft") as save_draft, \
              patch.object(news_monitor, "set_draft_status") as set_status, \
              patch.object(news_monitor, "remember") as remember:
             saved = news_monitor._save_short_source_headline_for_review(
@@ -35,12 +37,13 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
                 on_new_draft=callback_items.append, result=result,
             )
 
-        self.assertFalse(saved)
-        self.assertEqual(result["short_source_skipped"], 1)
-        self.assertEqual(callback_items, [])
-        save_draft.assert_not_called()
-        set_status.assert_not_called()
-        remember.assert_not_called()
+        self.assertTrue(saved)
+        self.assertEqual(result["short_source_drafts"], 1)
+        self.assertEqual(result["drafts_saved"], 1)
+        self.assertEqual(callback_items, [{"title":"नेपालमा नयाँ समाचार शीर्षक","source":"Onlinekhabar"}])
+        self.assertEqual(save_draft.call_args.args[4], "नेपालमा नयाँ समाचार शीर्षक")
+        set_status.assert_called_once_with("item-1", "draft")
+        remember.assert_called_once()
 
 
     def test_only_fresh_configured_nonbreaking_https_items_are_eligible(self):
