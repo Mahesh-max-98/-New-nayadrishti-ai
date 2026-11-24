@@ -59,6 +59,18 @@ def init_db():
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS breaking_reason TEXT DEFAULT ''")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS article_text TEXT DEFAULT ''")
         db.execute("""
+            CREATE TABLE IF NOT EXISTS draft_revision_history (
+                id BIGSERIAL PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                previous_summary TEXT NOT NULL,
+                edited_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_draft_revision_history_item
+            ON draft_revision_history (item_id, edited_at DESC)
+        """)
+        db.execute("""
             CREATE TABLE IF NOT EXISTS pending_stories (
                 item_id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -183,15 +195,40 @@ def get_drafts(limit=50):
 
 
 def update_pending_draft_summary(item_id, summary):
-    """Update only the editable post text of a draft that is still awaiting review."""
+    """Save the previous text before updating a draft that is still pending review."""
     with connection() as db:
-        row = db.execute("""
-            UPDATE drafts
-            SET summary=%s
+        current = db.execute("""
+            SELECT summary FROM drafts
             WHERE item_id=%s AND status='draft'
-            RETURNING item_id
-        """, (summary, item_id)).fetchone()
-    return row is not None
+            FOR UPDATE
+        """, (item_id,)).fetchone()
+        if not current:
+            return False
+        previous_summary = current.get("summary") or ""
+        if previous_summary == summary:
+            return True
+        db.execute("""
+            INSERT INTO draft_revision_history (item_id, previous_summary)
+            VALUES (%s, %s)
+        """, (item_id, previous_summary))
+        db.execute("""
+            UPDATE drafts SET summary=%s
+            WHERE item_id=%s AND status='draft'
+        """, (summary, item_id))
+    return True
+
+
+def get_draft_revision_history(item_id, limit=10):
+    """Return prior text versions for one draft, newest first."""
+    with connection() as db:
+        rows = db.execute("""
+            SELECT previous_summary, edited_at
+            FROM draft_revision_history
+            WHERE item_id=%s
+            ORDER BY edited_at DESC, id DESC
+            LIMIT %s
+        """, (item_id, max(1, min(int(limit), 25)))).fetchall()
+    return [dict(row) for row in rows]
 
 
 def set_draft_status(item_id, status):
