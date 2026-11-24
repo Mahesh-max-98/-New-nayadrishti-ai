@@ -420,6 +420,13 @@ def _build_non_ai_summary_post(title, article_text):
     return "📰 समाचार अपडेट\n\n" + headline + "\n" + "\n".join(body_lines)
 
 
+
+def _build_non_ai_headline_post(title, publisher=""):
+    """Create a headline-only review draft when the feed has no readable article text."""
+    headline = clean_text(title, 260)
+    return "📰 समाचार अपडेट\\n\\n" + headline if headline else ""
+
+
 def _save_short_source_headline_for_review(item_id, title, publisher, article_url,
                                            published_timestamp=None, on_new_draft=None, result=None):
     """Keep fresh headline-only items visible for manual review; never auto-publish them."""
