@@ -264,7 +264,8 @@ async function runCheck(){
     const p=state.progress||{};
     const where=p.source?' · '+p.source:'';
     const count=Number(p.feeds_processed||0)+'/'+Number(p.feeds_total||0);
-    out.textContent='Checking news sources '+count+where+' · New drafts: '+Number(state.new_drafts||0);
+    const story=p.story_index?' · Story '+p.story_index+'/'+(p.story_total||'?'):'';
+    out.textContent='Checking news sources '+count+where+story+' · New drafts: '+Number(state.new_drafts||0);
     await new Promise(resolve=>setTimeout(resolve,2500));return poll();
    }
    if(state.finished){
