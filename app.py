@@ -10,7 +10,7 @@ import io
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, update_pending_draft_summary, get_draft_revision_history, restore_pending_draft_revision, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
+from database import get_drafts, init_db, set_draft_status, update_pending_draft_summary, get_draft_revision_history, restore_pending_draft_revision, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health, bulk_dismiss_pending_drafts
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
@@ -18,6 +18,7 @@ from legal_pages import register_legal_routes
 from review_gate import review_checklist_complete
 from story_quality import editorial_quality_flags
 from draft_edit import validate_draft_text
+from bulk_drafts import validate_bulk_dismiss_ids
 
 app = Flask(__name__)
 register_legal_routes(app)
@@ -221,7 +222,8 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 {% if search_query %}<p class="small">Search results for “{{ search_query }}”: {{ drafts|length }} matching drafts.</p>{% endif %}
 <p class="small">Breaking labels are automatic signals based on urgent wording, source priority and a recent publication time. They are not confirmation; check the original article.</p>
 {% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
-{% for d in drafts %}<article class="draft">{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span><p class="small">{{ d.breaking_reason }}</p>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
+{% if drafts %}<form id="bulk-dismiss-form" method="post" action="/drafts/bulk-dismiss" onsubmit="return confirm('Dismiss only the drafts you selected? They will remain in the database and will not be published.')"><div class="panel"><label><input type="checkbox" id="select-all-drafts" style="width:auto;margin:0 6px 0 0"> Select all visible drafts</label><p class="small">Choose specific drafts, then dismiss them together. This does not delete drafts or publish posts.</p><button class="secondary" type="submit">Dismiss selected drafts</button></div></form>{% endif %}
+{% for d in drafts %}<article class="draft"><label class="small"><input type="checkbox" name="item_ids" value="{{ d.item_id }}" form="bulk-dismiss-form" style="width:auto;margin:0 6px 0 0"> Select this draft for bulk dismiss</label>{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span><p class="small">{{ d.breaking_reason }}</p>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
 <p class="small">Source: {{ d.source or "Original publisher" }}</p>
 <details class="final-post-preview"><summary>Preview final post · text-only</summary><div class="final-post-body">{{ d.summary or "" }}</div><p class="final-post-meta">{{ (d.summary or "")|length }} characters · This preview contains only the post text. It does not publish anything.</p></details>
 {% if d.quality_flags %}<details class="quality-review" open><summary><strong>Automatic review flags ({{ d.quality_flags|length }})</strong> <span class="small">— please check before approving</span></summary><ul>{% for flag in d.quality_flags %}<li>{{ flag }}</li>{% endfor %}</ul><p class="small">These are warning signals only, not proof that a draft is wrong or correct.</p></details>
@@ -470,6 +472,8 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
+ const selectAll=document.getElementById('select-all-drafts');
+ if(selectAll)selectAll.addEventListener('change',()=>document.querySelectorAll('input[name="item_ids"][form="bulk-dismiss-form"]').forEach(box=>{box.checked=selectAll.checked;}));
  loadDatabaseHealth();loadAnalytics();loadGroqUsage();loadFacebookStatus();loadPersistentFeedHealth();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
  const el=document.getElementById('monitoring-status');
  let seenDrafts=0;
@@ -595,6 +599,20 @@ def restore_draft_revision(item_id, revision_id):
     if not restored:
         return redirect(url_for("home", notice="Could not restore that version. The draft may no longer be pending."))
     return redirect(url_for("home", notice="Previous version restored. The text that was current has been saved in history. The draft is still pending review and has not been published."))
+
+
+@app.post("/drafts/bulk-dismiss")
+@login_required
+def bulk_dismiss_drafts():
+    """Dismiss only explicitly selected pending drafts; never delete or publish."""
+    try:
+        item_ids = validate_bulk_dismiss_ids(request.form.getlist("item_ids"))
+    except ValueError as exc:
+        return redirect(url_for("home", notice=str(exc)))
+    if not item_ids:
+        return redirect(url_for("home", notice="Select at least one draft first."))
+    changed = bulk_dismiss_pending_drafts(item_ids)
+    return redirect(url_for("home", notice=f"{changed} selected draft(s) dismissed. Draft records remain saved; nothing was published."))
 
 
 @app.post("/draft/<item_id>/status")
