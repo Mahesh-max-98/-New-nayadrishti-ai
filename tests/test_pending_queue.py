@@ -26,7 +26,7 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
             "नेपालमा नयाँ समाचार शीर्षक",
             "Onlinekhabar",
         )
-        self.assertEqual(post, "📰 समाचार अपडेट\\n\\nनेपालमा नयाँ समाचार शीर्षक")
+        self.assertEqual(post, "📰 समाचार अपडेट\n\nनेपालमा नयाँ समाचार शीर्षक")
         self.assertNotIn("स्रोत:", post)
         self.assertNotIn("Onlinekhabar", post)
         self.assertNotIn("http", post)
