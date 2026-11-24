@@ -182,6 +182,18 @@ def get_drafts(limit=50):
         return [dict(row) for row in rows]
 
 
+def update_pending_draft_summary(item_id, summary):
+    """Update only the editable post text of a draft that is still awaiting review."""
+    with connection() as db:
+        row = db.execute("""
+            UPDATE drafts
+            SET summary=%s
+            WHERE item_id=%s AND status='draft'
+            RETURNING item_id
+        """, (summary, item_id)).fetchone()
+    return row is not None
+
+
 def set_draft_status(item_id, status):
     with connection() as db:
         db.execute("UPDATE drafts SET status=%s WHERE item_id=%s AND status=%s", (status, item_id, "draft"))
