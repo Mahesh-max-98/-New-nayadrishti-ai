@@ -8,7 +8,7 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health
+from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
@@ -152,7 +152,7 @@ input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;margin:
 .small{color:#64748b;font-size:13px}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:9px;margin-top:12px}
 .draft h3{margin:0 0 8px;white-space:pre-line;line-height:1.7;font-size:19px}\n.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{font-size:13px;padding:10px 13px}.actions .secondary{background:#475569}
 .top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
-.feed-row{padding:11px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.feed-name{font-weight:700}.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}.filters select{padding:11px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;min-width:170px}.tag{display:inline-block;padding:5px 9px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700;margin:0 5px 8px 0}.tag-breaking{background:#fee2e2;color:#991b1b}.feed-ok{color:#166534}.feed-error{color:#b91c1c}.feed-meta{color:#64748b;font-size:13px;margin-top:4px}.feed-error-text{color:#b91c1c;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
+.feed-row{padding:11px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.feed-name{font-weight:700}.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}.filters select{padding:11px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;min-width:170px}.tag{display:inline-block;padding:5px 9px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700;margin:0 5px 8px 0}.tag-breaking{background:#fee2e2;color:#991b1b}.feed-ok{color:#166534}.feed-error{color:#b91c1c}.feed-meta{color:#64748b;font-size:13px;margin-top:4px}.feed-error-text{color:#b91c1c;font-size:13px;margin-top:4px;overflow-wrap:anywhere}.analytics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}.analytics-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}.analytics-card strong{font-size:25px;color:#172554}.analytics-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb}
 a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 </style></head><body><main class="wrap">
 <header><h1>NayaDrishti AI</h1><p>नयाँ दृष्टि, नयाँ खबर।</p><p>A New Perspective on Every Story.</p></header>
@@ -168,6 +168,21 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Automatic checks run from 5:00 AM through 10:55 PM Nepal time while the Render service is awake. Render's free service may sleep after inactivity, so checks can pause until it wakes.</p>
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
+<section class="panel" id="news-analytics">
+<h3>News desk analytics</h3>
+<p class="small">Lifetime totals and recent activity from this dashboard. Counts describe collected records, not verified facts.</p>
+<div class="analytics-grid">
+<div class="analytics-card"><span class="small">Discovered items</span><strong id="analytics-discovered">—</strong></div>
+<div class="analytics-card"><span class="small">Waiting for review</span><strong id="analytics-waiting">—</strong></div>
+<div class="analytics-card"><span class="small">Reviewed</span><strong id="analytics-reviewed">—</strong></div>
+<div class="analytics-card"><span class="small">Dismissed</span><strong id="analytics-dismissed">—</strong></div>
+<div class="analytics-card"><span class="small">Drafts · last 7 days</span><strong id="analytics-week">—</strong></div>
+<div class="analytics-card"><span class="small">Facebook posts published</span><strong id="analytics-published">—</strong></div>
+</div>
+<h4>Pending drafts by category</h4><div id="analytics-categories" class="small">Loading category totals...</div>
+<h4>News source status</h4><div id="analytics-sources" class="small">Loading source totals...</div>
+<button type="button" class="secondary" id="refresh-analytics" onclick="loadAnalytics()">Refresh analytics</button>
+</section>
 <section class="panel"><h3>Groq usage protection</h3><div id="groq-usage" class="small">Loading daily usage...</div><p class="small">Safety budgets are tracked using Nepal time. If both AI providers are unavailable, eligible stories are saved in a persistent recovery queue and retried with longer intervals for up to 7 days. Stories older than 72 hours are not auto-published, to avoid posting stale news. RSS feed checks continue. This cannot override provider quotas.</p></section>
 <button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div><h4>Saved source history</h4><div id="persistent-feed-health" class="small">Loading saved source history...</div></details>
@@ -205,6 +220,39 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
+async function loadAnalytics(){
+ const refresh=document.getElementById('refresh-analytics');
+ if(refresh)refresh.disabled=true;
+ try{
+  const response=await fetch('/analytics',{credentials:'same-origin',cache:'no-store'});
+  if(response.status===401)throw new Error('Sign in again to view analytics.');
+  if(!response.ok)throw new Error('Analytics request failed (HTTP '+response.status+').');
+  const data=await response.json(),drafts=data.drafts||{},sources=data.sources||{};
+  const values={
+   'analytics-discovered':data.discovered_items,
+   'analytics-waiting':drafts.waiting_review,
+   'analytics-reviewed':drafts.reviewed,
+   'analytics-dismissed':drafts.dismissed,
+   'analytics-week':drafts.created_last_7_days,
+   'analytics-published':data.facebook_published
+  };
+  Object.entries(values).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.textContent=Number(value||0).toLocaleString();});
+  const categories=document.getElementById('analytics-categories');
+  categories.replaceChildren();
+  if(!(data.categories||[]).length)categories.textContent='No pending drafts by category yet.';
+  (data.categories||[]).forEach(item=>{
+   const row=document.createElement('div');row.className='analytics-row';
+   const name=document.createElement('span');name.textContent=item.category;
+   const count=document.createElement('strong');count.textContent=Number(item.count||0).toLocaleString();
+   row.append(name,count);categories.append(row);
+  });
+  const target=document.getElementById('analytics-sources');
+  target.textContent='Healthy: '+Number(sources.healthy||0)+' · Warning: '+Number(sources.warning||0)+' · Error: '+Number(sources.error||0)+' · Tracked: '+Number(sources.total||0);
+ }catch(error){
+  const target=document.getElementById('analytics-categories');
+  if(target)target.textContent='Could not load analytics. '+error.message;
+ }finally{if(refresh)refresh.disabled=false;}
+}
 async function loadFacebookStatus(){
  const statusTarget=document.getElementById("facebook-status");
  const historyTarget=document.getElementById("facebook-history");
@@ -382,7 +430,7 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
- loadGroqUsage();loadFacebookStatus();loadPersistentFeedHealth();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
+ loadAnalytics();loadGroqUsage();loadFacebookStatus();loadPersistentFeedHealth();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
  const el=document.getElementById('monitoring-status');
  let seenDrafts=0;
  try{
@@ -482,6 +530,13 @@ def update_draft_status(item_id):
     set_draft_status(item_id, status)
     message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
     return redirect(url_for("home", notice=message))
+
+
+@app.get("/analytics")
+@login_required
+def analytics():
+    """Return aggregate news desk metrics to signed-in administrators."""
+    return jsonify(get_news_analytics())
 
 
 @app.get("/source-health")
