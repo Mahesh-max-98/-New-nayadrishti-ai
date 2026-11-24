@@ -13,7 +13,12 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def connection():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not configured.")
-    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    conn = psycopg.connect(
+        DATABASE_URL,
+        row_factory=dict_row,
+        connect_timeout=3,
+        options="-c statement_timeout=5000 -c lock_timeout=2000",
+    )
     try:
         yield conn
         conn.commit()
