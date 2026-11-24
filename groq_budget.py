@@ -159,7 +159,7 @@ def finish_groq_request(reservation, actual_tokens=0, post_created=False, error=
             SET reserved_tokens=GREATEST(0, reserved_tokens-%s),
                 tokens_used=tokens_used+%s,
                 posts_created=posts_created+%s,
-                paused_until=CASE WHEN %s IS NULL THEN paused_until ELSE %s END,
+                paused_until=COALESCE(%s::timestamptz, paused_until),
                 pause_reason=CASE WHEN %s='' THEN pause_reason ELSE %s END,
                 last_error=%s,
                 updated_at=CURRENT_TIMESTAMP
