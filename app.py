@@ -10,7 +10,7 @@ import io
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
+from database import get_drafts, init_db, set_draft_status, update_pending_draft_summary, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
