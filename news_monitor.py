@@ -544,8 +544,7 @@ def check_feeds(on_new_draft=None):
                         published_timestamp=published_timestamp, on_new_draft=on_new_draft, result=result,
                     ):
                         result["pending_processed"] += 1
-                    else:
-                        retry_pending_story(queued["item_id"], "AI providers unavailable; waiting for AI recovery because headline-only fallback was not eligible.")
+                    # The retry was already scheduled above; do not increment attempts twice.
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
