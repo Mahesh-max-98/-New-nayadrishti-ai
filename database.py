@@ -57,6 +57,7 @@ def init_db():
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'अन्य'")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS is_breaking BOOLEAN DEFAULT FALSE")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS breaking_reason TEXT DEFAULT ''")
+        db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS article_text TEXT DEFAULT ''")
         db.execute("""
             CREATE TABLE IF NOT EXISTS pending_stories (
                 item_id TEXT PRIMARY KEY,
@@ -149,19 +150,19 @@ def remember(item_id, title, source, url, status="seen"):
         """, (item_id, title, source, url, status))
 
 
-def save_draft(item_id, title, source, url, summary, language="ne", verification=None, category="अन्य", is_breaking=False, breaking_reason=""):
+def save_draft(item_id, title, source, url, summary, language="ne", verification=None, category="अन्य", is_breaking=False, breaking_reason="", article_text=""):
     verification = verification or {}
     with connection() as db:
         db.execute("""
             INSERT INTO drafts (
-                item_id, title, source, url, summary, language, status,
+                item_id, title, source, url, summary, language, status, article_text,
                 verification_status, verification_count, verification_sources, verification_note,
                 category, is_breaking, breaking_reason
             )
-            VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(item_id) DO NOTHING
         """, (
-            item_id, title, source, url, summary, language,
+            item_id, title, source, url, summary, language, (article_text or "")[:7000],
             verification.get("status", "single_source"),
             verification.get("count", 1),
             verification.get("sources", source),
@@ -173,7 +174,7 @@ def save_draft(item_id, title, source, url, summary, language="ne", verification
 def get_drafts(limit=50):
     with connection() as db:
         rows = db.execute("""
-            SELECT item_id, title, source, url, summary, language, status, created_at, verification_status, verification_count, verification_sources, verification_note, category, is_breaking, breaking_reason
+            SELECT item_id, title, source, url, summary, article_text, language, status, created_at, verification_status, verification_count, verification_sources, verification_note, category, is_breaking, breaking_reason
             FROM drafts
             WHERE status='draft'
             ORDER BY is_breaking DESC, created_at DESC
