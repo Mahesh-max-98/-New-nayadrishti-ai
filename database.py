@@ -299,9 +299,18 @@ def get_due_pending_stories(limit=5):
         return [dict(row) for row in rows]
 
 
+def pending_retry_delay_seconds(attempt_number):
+    """Return an exponential retry delay, capped at one day."""
+    delays = (900, 1800, 3600, 7200, 14400, 28800, 43200, 86400)
+    try:
+        attempt = max(1, int(attempt_number))
+    except (TypeError, ValueError):
+        attempt = 1
+    return delays[min(attempt - 1, len(delays) - 1)]
+
+
 def retry_pending_story(item_id, error=""):
     """Schedule a progressively slower retry, up to once every 24 hours."""
-    delays = (900, 1800, 3600, 7200, 14400, 28800, 43200, 86400)
     with connection() as db:
         row = db.execute("""
             SELECT attempts, expires_at
@@ -312,7 +321,7 @@ def retry_pending_story(item_id, error=""):
         if not row:
             return
         attempts = int(row["attempts"]) + 1
-        delay = delays[min(attempts - 1, len(delays) - 1)]
+        delay = pending_retry_delay_seconds(attempts)
         db.execute("""
             UPDATE pending_stories
             SET attempts=%s,
@@ -351,3 +360,14 @@ def get_pending_queue_status():
             FROM pending_stories
         """).fetchone()
     return {key: int(value or 0) for key, value in row.items()}
+
+
+def expire_pending_story(item_id, reason="Story became too old to publish safely."):
+    """Retain the audit status but remove temporary source text."""
+    with connection() as db:
+        db.execute("""
+            UPDATE pending_stories
+            SET status='expired', article_text='', last_error=%s,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE item_id=%s AND status='pending'
+        """, ((reason or "")[:500], item_id))
