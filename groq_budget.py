@@ -67,9 +67,13 @@ def _ensure_table():
                     requests_started INTEGER NOT NULL DEFAULT 0,
                     posts_created INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT NOT NULL DEFAULT '',
+                    paused_until TIMESTAMPTZ,
+                    pause_reason TEXT NOT NULL DEFAULT '',
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            db.execute("ALTER TABLE gemini_daily_usage ADD COLUMN IF NOT EXISTS paused_until TIMESTAMPTZ")
+            db.execute("ALTER TABLE gemini_daily_usage ADD COLUMN IF NOT EXISTS pause_reason TEXT NOT NULL DEFAULT ''")
         _schema_ready = True
 
 
@@ -111,6 +115,11 @@ def get_groq_usage_status():
         "groq_posts_created": int(row["posts_created"]),
         "fallback_posts_created": int(fallback_row["posts_created"]),
         "fallback_requests": int(fallback_row["requests_started"]),
+        "fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+        "fallback_paused": bool(fallback_row.get("paused_until") and fallback_row["paused_until"] > now),
+        "fallback_paused_until": fallback_row["paused_until"].isoformat() if fallback_row.get("paused_until") else None,
+        "fallback_pause_reason": fallback_row.get("pause_reason", "") if fallback_row.get("paused_until") and fallback_row["paused_until"] > now else "",
+        "fallback_last_error": fallback_row.get("last_error", ""),
         "post_limit": limits["post_limit"],
         "paused": paused,
         "paused_until": paused_until.isoformat() if paused_until else None,
