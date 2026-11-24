@@ -173,7 +173,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Read-only checks for the database connection and essential news tables. This check does not create or verify a backup.</p>
 <div id="database-health-status" class="status">Database health has not been checked yet.</div>
 <div id="database-health-tables" class="small"></div>
-<p class="small"><strong>Backup reminder:</strong> Open the database in Render and check its Backups section for the latest available snapshot and retention details. Do not delete or replace this database before confirming a usable backup.</p>
+<p class="small danger"><strong>Important — Free database:</strong> Render Free Postgres does not include built-in backups. Render currently lists this database to expire on 22 December 2026. Ask the authorized workspace owner to arrange a separate export or upgrade before that date. After expiry, Render provides only a 14-day grace period before deletion. This dashboard check does not create an export.</p>
 <p class="small"><a href="https://dashboard.render.com/d/dpg-dc1bad6q1p3s73fo5dr0-a" target="_blank" rel="noopener noreferrer">Open NayaDrishti database in Render</a></p>
 <button type="button" class="secondary" id="refresh-database-health" onclick="loadDatabaseHealth()">Run read-only database check</button>
 </section>
