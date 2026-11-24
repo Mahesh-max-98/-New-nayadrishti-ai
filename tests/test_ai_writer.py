@@ -290,3 +290,36 @@ class GroqBudgetConfigurationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class GeminiFallbackTests(unittest.TestCase):
+    def test_gemini_fallback_generates_validated_post_when_groq_budget_is_paused(self):
+        from unittest.mock import patch
+        from ai_writer import write_summary
+        valid = (
+            "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\\n"
+            "यसबाट देशभरका नागरिकलाई सेवा लिन सहज हुने बताइएको छ।\\n"
+            "सम्बन्धित निकायले कार्यान्वयन प्रक्रिया अघि बढाउने जनाएको छ।"
+        )
+        reservation = {"usage_date": "2026-11-24"}
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-gemini-key"}, clear=True), \\
+             patch("ai_fallback.reserve_gemini_request", return_value=reservation), \\
+             patch("ai_fallback.generate_with_gemini", return_value=valid) as generate, \\
+             patch("ai_fallback.finish_gemini_request") as finish:
+            result = write_summary(
+                "सरकारले नयाँ नीति सार्वजनिक गर्‍यो",
+                "यो समाचारको पर्याप्त विवरण हो। " * 20,
+                "Onlinekhabar",
+                "https://example.com/news",
+            )
+        self.assertTrue(result.endswith("📰"))
+        generate.assert_called_once()
+        finish.assert_called_once_with(reservation, post_created=True)
+
+    def test_gemini_daily_budget_error_is_clear(self):
+        from unittest.mock import patch
+        from ai_fallback import reserve_gemini_request
+        with patch.dict("os.environ", {"DATABASE_URL": ""}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "DATABASE_URL"):
+                reserve_gemini_request()
