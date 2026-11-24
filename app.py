@@ -10,13 +10,14 @@ import io
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
+from database import get_drafts, init_db, set_draft_status, update_pending_draft_summary, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
 from legal_pages import register_legal_routes
 from review_gate import review_checklist_complete
 from story_quality import editorial_quality_flags
+from draft_edit import validate_draft_text
 
 app = Flask(__name__)
 register_legal_routes(app)
@@ -236,6 +237,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 {% if d.article_text %}<p class="small">Extracted source text · preview only; check the publisher's original page for the complete article.</p><p style="white-space:pre-wrap;line-height:1.7">{{ d.article_text[:2500] }}{% if d.article_text|length > 2500 %}…{% endif %}</p>
 {% else %}<p class="small">Original article text was not available during collection. Open the original report to review it.</p>{% endif %}
 </details>
+<details class="draft-editor"><summary><strong>Edit Nepali draft</strong> <span class="small">— changes only the pending post text</span></summary><form method="post" action="/draft/{{ d.item_id }}/edit"><label class="small" for="draft-text-{{ loop.index }}">Nepali post text</label><textarea id="draft-text-{{ loop.index }}" name="summary" rows="6" maxlength="10000" required style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;line-height:1.7">{{ d.summary }}</textarea><p class="small">Maximum 10,000 characters. The original source preview and link stay unchanged. Saving edits does not approve or publish this draft.</p><button type="submit">Save draft edits</button></form></details>
 <div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><label class="small"><input type="checkbox" name="read_original" value="yes" required style="width:auto"> मैले मूल समाचार खोलेर पढेको छु</label><label class="small"><input type="checkbox" name="checked_key_facts" value="yes" required style="width:auto"> नाम, स्थान र मुख्य तथ्य जाँचेको छु</label><label class="small"><input type="checkbox" name="summary_matches_source" value="yes" required style="width:auto"> पोस्ट मूल समाचारसँग मेल खान्छ</label><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
 </article>
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
@@ -566,6 +568,20 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+@app.post("/draft/<item_id>/edit")
+@login_required
+def edit_draft(item_id):
+    """Edit only the Nepali text of a still-pending draft; never approves or publishes."""
+    try:
+        summary = validate_draft_text(request.form.get("summary", ""))
+    except ValueError as exc:
+        return redirect(url_for("home", notice=str(exc)))
+    updated = update_pending_draft_summary(item_id, summary)
+    if not updated:
+        return redirect(url_for("home", notice="This draft is no longer pending or could not be found."))
+    return redirect(url_for("home", notice="Draft text saved. It is still waiting for manual review and has not been published."))
 
 
 @app.post("/draft/<item_id>/status")
