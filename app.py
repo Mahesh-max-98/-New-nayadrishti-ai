@@ -10,7 +10,7 @@ import io
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, update_pending_draft_summary, get_draft_revision_history, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
+from database import get_drafts, init_db, set_draft_status, update_pending_draft_summary, get_draft_revision_history, restore_pending_draft_revision, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
@@ -238,7 +238,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 {% else %}<p class="small">Original article text was not available during collection. Open the original report to review it.</p>{% endif %}
 </details>
 <details class="draft-editor"><summary><strong>Edit Nepali draft</strong> <span class="small">— changes only the pending post text</span></summary><form method="post" action="/draft/{{ d.item_id }}/edit"><label class="small" for="draft-text-{{ loop.index }}">Nepali post text</label><textarea id="draft-text-{{ loop.index }}" name="summary" rows="6" maxlength="10000" required style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;line-height:1.7">{{ d.summary }}</textarea><p class="small">Maximum 10,000 characters. The original source preview and link stay unchanged. Saving edits does not approve or publish this draft.</p><button type="submit">Save draft edits</button></form></details>
-{% set revisions = d.revision_history %}<details class="revision-history"><summary><strong>Previous versions ({{ revisions|length }})</strong> <span class="small">— saved automatically when edits are made</span></summary>{% if revisions %}{% for revision in revisions %}<div class="feed-row"><span class="small">Previous version · {{ revision.edited_at }}</span></div><p style="white-space:pre-wrap;line-height:1.7;background:#f8fafc;padding:12px;border-radius:9px">{{ revision.previous_summary }}</p>{% endfor %}{% else %}<p class="small">No previous edits yet. A version will appear here after you save a change.</p>{% endif %}</details>
+{% set revisions = d.revision_history %}<details class="revision-history"><summary><strong>Previous versions ({{ revisions|length }})</strong> <span class="small">— saved automatically when edits are made</span></summary>{% if revisions %}{% for revision in revisions %}<div class="feed-row"><span class="small">Previous version · {{ revision.edited_at }}</span></div><p style="white-space:pre-wrap;line-height:1.7;background:#f8fafc;padding:12px;border-radius:9px">{{ revision.previous_summary }}</p><form method="post" action="/draft/{{ d.item_id }}/restore/{{ revision.id }}" onsubmit="return confirm(&quot;Restore this version? Your current text will be saved in history first.&quot;)"><button class="secondary" type="submit">Restore this version</button></form>{% endfor %}{% else %}<p class="small">No previous edits yet. A version will appear here after you save a change.</p>{% endif %}</details>
 <div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><label class="small"><input type="checkbox" name="read_original" value="yes" required style="width:auto"> मैले मूल समाचार खोलेर पढेको छु</label><label class="small"><input type="checkbox" name="checked_key_facts" value="yes" required style="width:auto"> नाम, स्थान र मुख्य तथ्य जाँचेको छु</label><label class="small"><input type="checkbox" name="summary_matches_source" value="yes" required style="width:auto"> पोस्ट मूल समाचारसँग मेल खान्छ</label><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
 </article>
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
@@ -584,6 +584,16 @@ def edit_draft(item_id):
     if not updated:
         return redirect(url_for("home", notice="This draft is no longer pending or could not be found."))
     return redirect(url_for("home", notice="Draft text saved. It is still waiting for manual review and has not been published."))
+
+
+@app.post("/draft/<item_id>/restore/<int:revision_id>")
+@login_required
+def restore_draft_revision(item_id, revision_id):
+    """Restore an older version of a pending draft after explicit confirmation."""
+    restored = restore_pending_draft_revision(item_id, revision_id)
+    if not restored:
+        return redirect(url_for("home", notice="Could not restore that version. The draft may no longer be pending."))
+    return redirect(url_for("home", notice="Previous version restored. The text that was current has been saved in history. The draft is still pending review and has not been published."))
 
 
 @app.post("/draft/<item_id>/status")

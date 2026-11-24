@@ -218,11 +218,46 @@ def update_pending_draft_summary(item_id, summary):
     return True
 
 
+def restore_pending_draft_revision(item_id, revision_id):
+    """Restore an old version and preserve current text in revision history."""
+    try:
+        revision_id = int(revision_id)
+    except (TypeError, ValueError):
+        return False
+    with connection() as db:
+        current = db.execute("""
+            SELECT summary FROM drafts
+            WHERE item_id=%s AND status='draft'
+            FOR UPDATE
+        """, (item_id,)).fetchone()
+        if not current:
+            return False
+        selected = db.execute("""
+            SELECT previous_summary FROM draft_revision_history
+            WHERE id=%s AND item_id=%s
+        """, (revision_id, item_id)).fetchone()
+        if not selected:
+            return False
+        current_summary = current.get("summary") or ""
+        restored_summary = selected.get("previous_summary") or ""
+        if current_summary == restored_summary:
+            return True
+        db.execute("""
+            INSERT INTO draft_revision_history (item_id, previous_summary)
+            VALUES (%s, %s)
+        """, (item_id, current_summary))
+        db.execute("""
+            UPDATE drafts SET summary=%s
+            WHERE item_id=%s AND status='draft'
+        """, (restored_summary, item_id))
+    return True
+
+
 def get_draft_revision_history(item_id, limit=10):
     """Return prior text versions for one draft, newest first."""
     with connection() as db:
         rows = db.execute("""
-            SELECT previous_summary, edited_at
+            SELECT id, previous_summary, edited_at
             FROM draft_revision_history
             WHERE item_id=%s
             ORDER BY edited_at DESC, id DESC
