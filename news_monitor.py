@@ -363,9 +363,9 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
 
 
 def _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp=None, now=None):
-    """Allow only fresh, non-urgent headlines from higher-priority publishers."""
+    """Allow fresh Nepali headlines from configured publishers, excluding urgent items."""
     clean_title = clean_text(title, 300)
-    if source_priority(publisher) < 85 or len(clean_title) < 8:
+    if source_priority(publisher) < 65 or len(clean_title) < 8:
         return False
     if len(re.findall(r"[\u0900-\u097F]", clean_title)) < 5:
         return False
@@ -381,7 +381,7 @@ def _non_ai_headline_is_eligible(title, publisher, article_url, published_timest
         return False
     current_time = float(now if now is not None else datetime.now(timezone.utc).timestamp())
     age_seconds = current_time - float(published_timestamp)
-    if age_seconds < -7200 or age_seconds > 12 * 3600:
+    if age_seconds < -7200 or age_seconds > 24 * 3600:
         return False
     is_breaking, _ = detect_breaking_news(title, "", publisher, published_timestamp, now=current_time)
     return not is_breaking
@@ -518,7 +518,7 @@ def check_feeds(on_new_draft=None):
 
     per_feed_limit = max(1, min(int(os.getenv("MAX_STORIES_PER_FEED", "2")), 5))
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
-    ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "5")), 5))
+    ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "2")), 3))
     usage_at_start = get_groq_usage_status()
     # Groq request/token pauses do not stop the scan: write_summary can use Gemini.
     # The shared daily post ceiling still stops additional AI drafting. 
@@ -621,6 +621,8 @@ def check_feeds(on_new_draft=None):
             detail["entries_found"] = len(entries)
 
             for entry in entries[:60]:
+                if detail["new_items"] >= per_feed_limit or detail.get("queued_items", 0) >= per_feed_limit:
+                    break
                 raw_title = clean_text(entry.get("title"), 300)
                 article_url = (entry.get("link") or "").strip()
                 rss_description = clean_text(entry.get("summary") or entry.get("description") or "", 7000)
@@ -660,11 +662,12 @@ def check_feeds(on_new_draft=None):
                 timestamp = _entry_timestamp(entry)
                 if len(article_text) < 80:
                     log.info("Saving headline-only item for manual review; source text is too short: %s", title)
-                    _save_short_source_headline_for_review(
+                    if _save_short_source_headline_for_review(
                         item_id, title, publisher, article_url,
                         published_timestamp=timestamp,
                         on_new_draft=on_new_draft, result=result,
-                    )
+                    ):
+                        detail["new_items"] += 1
                     continue
                 published_at = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp else None
                 enqueue_pending_story(
