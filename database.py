@@ -47,11 +47,7 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Remove legacy image storage so the application is fully text-only.
-        db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_data")
-        db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_status")
-        db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_error")
-        db.execute("ALTER TABLE drafts DROP COLUMN IF EXISTS image_last_attempt")
+        # Preserve legacy columns and records; schema updates below are additive only.
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'single_source'")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_count INTEGER DEFAULT 1")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS verification_sources TEXT DEFAULT ''")
