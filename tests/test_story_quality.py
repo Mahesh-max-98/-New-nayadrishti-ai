@@ -4,6 +4,7 @@ from story_quality import (
     has_unsupported_numbers,
     normalize_story_title,
     similar_story_titles,
+    editorial_quality_flags,
 )
 
 
@@ -43,6 +44,36 @@ class StoryQualityTests(unittest.TestCase):
             "विद्यालयमा नयाँ कार्यक्रम सुरु भयो",
             "विद्यालयमा आज नयाँ कार्यक्रम सुरु भएको छ।",
         ))
+
+
+    def test_flags_numbers_not_found_in_original_source(self):
+        flags = editorial_quality_flags(
+            "आज २५ जनालाई पुरस्कार दिइयो",
+            "आज पुरस्कार वितरण कार्यक्रम",
+            "आज २० जनालाई पुरस्कार वितरण गरियो।"
+        )
+        self.assertTrue(any("अंक" in flag for flag in flags))
+
+    def test_flags_missing_source_text(self):
+        flags = editorial_quality_flags("विद्यालयमा कार्यक्रम सुरु भयो", "विद्यालयमा कार्यक्रम सुरु")
+        self.assertTrue(any("पाठ उपलब्ध छैन" in flag for flag in flags))
+
+    def test_flags_unwanted_prefix_and_urls(self):
+        flags = editorial_quality_flags(
+            "समाचार अपडेट: थप विवरण https://example.com",
+            "थप विवरण",
+            "यो पर्याप्त मूल समाचार सामग्री हो।"
+        )
+        self.assertTrue(any("URL" in flag for flag in flags))
+        self.assertTrue(any("समाचार अपडेट" in flag for flag in flags))
+
+    def test_no_flags_for_grounded_short_post(self):
+        flags = editorial_quality_flags(
+            "विद्यालयमा नयाँ पुस्तकालय सुरु भयो।",
+            "विद्यालयमा नयाँ पुस्तकालय सुरु",
+            "विद्यालयमा आज नयाँ पुस्तकालय सुरु भएको छ।"
+        )
+        self.assertEqual(flags, [])
 
 
 if __name__ == "__main__":
