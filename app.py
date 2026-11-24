@@ -8,7 +8,7 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics
+from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health, get_news_analytics, get_database_recovery_health
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
@@ -168,6 +168,15 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <p class="small">Automatic checks run from 5:00 AM through 10:55 PM Nepal time while the Render service is awake. Render's free service may sleep after inactivity, so checks can pause until it wakes.</p>
 <p class="small">Text-only mode: no images or timestamps in posts. New drafts appear automatically as soon as each story is processed. Source details are kept separately in the dashboard.</p>
 <div id="monitoring-status" class="status">Loading latest check status...</div>
+<section class="panel" id="database-recovery">
+<h3>Database safety &amp; recovery</h3>
+<p class="small">Read-only checks for the database connection and essential news tables. This check does not create or verify a backup.</p>
+<div id="database-health-status" class="status">Database health has not been checked yet.</div>
+<div id="database-health-tables" class="small"></div>
+<p class="small"><strong>Backup reminder:</strong> Open the database in Render and check its Backups section for the latest available snapshot and retention details. Do not delete or replace this database before confirming a usable backup.</p>
+<p class="small"><a href="https://dashboard.render.com/d/dpg-dc1bad6q1p3s73fo5dr0-a" target="_blank" rel="noopener noreferrer">Open NayaDrishti database in Render</a></p>
+<button type="button" class="secondary" id="refresh-database-health" onclick="loadDatabaseHealth()">Run read-only database check</button>
+</section>
 <section class="panel" id="news-analytics">
 <h3>News desk analytics</h3>
 <p class="small">Lifetime totals and recent activity from this dashboard. Counts describe collected records, not verified facts.</p>
@@ -220,6 +229,34 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
+async function loadDatabaseHealth(){
+ const button=document.getElementById('refresh-database-health');
+ const status=document.getElementById('database-health-status');
+ const tableBox=document.getElementById('database-health-tables');
+ if(button)button.disabled=true;
+ if(status)status.textContent='Checking database connection and essential tables...';
+ if(tableBox)tableBox.replaceChildren();
+ try{
+  const response=await fetch('/database-health',{credentials:'same-origin',cache:'no-store'});
+  if(response.status===401)throw new Error('Sign in again to run this check.');
+  if(!response.ok)throw new Error('Database check failed (HTTP '+response.status+').');
+  const data=await response.json();
+  const mb=(Number(data.database_size_bytes||0)/1048576).toFixed(2);
+  status.textContent=(data.status==='healthy'?'Core database tables are present.':'Some required tables are missing.')
+   +' Database: '+data.database_name+' · PostgreSQL '+data.postgres_version
+   +' · Size: '+mb+' MB · Public tables: '+data.table_count+'.';
+  (data.required_tables||[]).forEach(item=>{
+   const row=document.createElement('div');row.className='analytics-row';
+   const name=document.createElement('span');name.textContent=item.name;
+   const count=document.createElement('strong');
+   count.textContent=item.present?'Present · '+Number(item.row_count||0).toLocaleString()+' rows':'MISSING';
+   row.append(name,count);tableBox.append(row);
+  });
+  const note=document.createElement('p');note.className='small';note.textContent=data.note||'Backup status not verified.';
+  tableBox.append(note);
+ }catch(error){status.textContent='Could not check database health. '+error.message;}
+ finally{if(button)button.disabled=false;}
+}
 async function loadAnalytics(){
  const refresh=document.getElementById('refresh-analytics');
  if(refresh)refresh.disabled=true;
@@ -430,7 +467,7 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
- loadAnalytics();loadGroqUsage();loadFacebookStatus();loadPersistentFeedHealth();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
+ loadDatabaseHealth();loadAnalytics();loadGroqUsage();loadFacebookStatus();loadPersistentFeedHealth();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
  const el=document.getElementById('monitoring-status');
  let seenDrafts=0;
  try{
@@ -530,6 +567,13 @@ def update_draft_status(item_id):
     set_draft_status(item_id, status)
     message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
     return redirect(url_for("home", notice=message))
+
+
+@app.get("/database-health")
+@login_required
+def database_health():
+    """Return read-only core database integrity information to signed-in admins."""
+    return jsonify(get_database_recovery_health())
 
 
 @app.get("/analytics")
