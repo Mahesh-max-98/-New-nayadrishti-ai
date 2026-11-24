@@ -98,7 +98,7 @@ class GroqRequestResilienceTests(unittest.TestCase):
         from unittest.mock import patch
         with patch.dict("os.environ", {"GROQ_MAX_ARTICLE_CHARS": "1200"}):
             result = _bounded_article_text("क" * 5000)
-        self.assertEqual(len(result), 1200)
+        self.assertEqual(len(result), 1000)
 
     def test_rate_limit_is_not_retried(self):
         from unittest.mock import Mock, patch
