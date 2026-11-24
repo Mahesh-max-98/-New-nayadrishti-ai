@@ -12,7 +12,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status
+from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story
 from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text
 
@@ -360,6 +360,7 @@ def check_feeds(on_new_draft=None):
         "ai_requests": 0, "ai_writes": 0, "ai_limit_reached": False,
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
         "feed_details": [], "queued_for_retry": 0, "pending_processed": 0,
+        "pending_expired": 0,
     }
     if not feeds:
         result["errors"].append("No RSS feeds configured.")
@@ -384,6 +385,20 @@ def check_feeds(on_new_draft=None):
             if result["ai_requests"] >= ai_request_limit:
                 result["ai_limit_reached"] = True
                 break
+            reference_time = queued.get("published_at") or queued.get("created_at")
+            if reference_time:
+                if reference_time.tzinfo is None:
+                    reference_time = reference_time.replace(tzinfo=timezone.utc)
+                try:
+                    max_publish_age = int(os.getenv("PENDING_NEWS_MAX_PUBLISH_AGE_HOURS", "72"))
+                except (TypeError, ValueError):
+                    max_publish_age = 72
+                max_publish_age = max(24, min(max_publish_age, 168))
+                age_hours = (datetime.now(timezone.utc) - reference_time).total_seconds() / 3600
+                if age_hours > max_publish_age:
+                    expire_pending_story(queued["item_id"], "Expired: story is older than the safe auto-publish window.")
+                    result["pending_expired"] += 1
+                    continue
             result["ai_requests"] += 1
             try:
                 article_text = clean_text(queued.get("article_text"), 7000)
