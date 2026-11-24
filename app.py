@@ -229,6 +229,10 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 {{ d.verification_note }}</p>
 {% if d.verification_sources %}<p class="small">Compared publishers: {{ d.verification_sources }}</p>{% endif %}
 {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Read original report</a>{% endif %}
+<details class="source-preview"><summary><strong>Original source preview</strong> <span class="small">— compare with the Nepali draft</span></summary>
+{% if d.article_text %}<p class="small">Extracted source text · preview only; check the publisher's original page for the complete article.</p><p style="white-space:pre-wrap;line-height:1.7">{{ d.article_text[:2500] }}{% if d.article_text|length > 2500 %}…{% endif %}</p>
+{% else %}<p class="small">Original article text was not available during collection. Open the original report to review it.</p>{% endif %}
+</details>
 <div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><label class="small"><input type="checkbox" name="read_original" value="yes" required style="width:auto"> मैले मूल समाचार खोलेर पढेको छु</label><label class="small"><input type="checkbox" name="checked_key_facts" value="yes" required style="width:auto"> नाम, स्थान र मुख्य तथ्य जाँचेको छु</label><label class="small"><input type="checkbox" name="summary_matches_source" value="yes" required style="width:auto"> पोस्ट मूल समाचारसँग मेल खान्छ</label><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
 </article>
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
