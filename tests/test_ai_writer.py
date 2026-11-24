@@ -119,6 +119,58 @@ class GroqRequestResilienceTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
 
 
+class GroqMultiKeyFailoverTests(unittest.TestCase):
+    def setUp(self):
+        import ai_writer
+        ai_writer._KEY_COOLDOWNS.clear()
+        ai_writer._NEXT_KEY_INDEX = 0
+
+    def test_invalid_primary_key_falls_back_to_backup(self):
+        from unittest.mock import Mock, patch
+        import ai_writer
+        invalid = Mock(ok=False, status_code=401, headers={}, text="invalid api key")
+        success = Mock(ok=True, status_code=200)
+        env = {
+            "GROQ_API_KEY": "test-primary",
+            "GROQ_API_KEY_2": "test-backup",
+            "GROQ_API_KEY_3": "test-third",
+            "GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0",
+        }
+        with patch.dict("os.environ", env, clear=True), \\
+             patch("ai_writer._post_to_groq", side_effect=[invalid, success]) as post:
+            response = ai_writer._post_to_groq_with_failover(payload={"model": "test"})
+        self.assertTrue(response.ok)
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(post.call_args_list[0].kwargs["headers"]["Authorization"], "Bearer test-primary")
+        self.assertEqual(post.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer test-backup")
+
+    def test_rate_limit_does_not_rotate_to_another_key(self):
+        from unittest.mock import Mock, patch
+        import ai_writer
+        limited = Mock(ok=False, status_code=429, headers={"Retry-After": "30"}, text="rate limit reached")
+        success = Mock(ok=True, status_code=200)
+        env = {
+            "GROQ_API_KEY": "test-primary",
+            "GROQ_API_KEY_2": "test-backup",
+            "GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0",
+        }
+        with patch.dict("os.environ", env, clear=True), \\
+             patch("ai_writer._post_to_groq", side_effect=[limited, success]) as post:
+            response = ai_writer._post_to_groq_with_failover(payload={"model": "test"})
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(post.call_count, 1)
+
+    def test_duplicate_keys_are_only_used_once(self):
+        from unittest.mock import patch
+        import ai_writer
+        with patch.dict("os.environ", {
+            "GROQ_API_KEY": "same-key",
+            "GROQ_API_KEY_2": "same-key",
+            "GROQ_API_KEY_3": "other-key",
+        }, clear=True):
+            self.assertEqual(ai_writer._configured_groq_keys(), ["same-key", "other-key"])
+
+
 
 class NewsDiscoveryRankingTests(unittest.TestCase):
     def test_named_publishers_receive_priority_a(self):
