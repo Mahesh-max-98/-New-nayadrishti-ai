@@ -168,10 +168,14 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <section class="panel"><h3>Groq usage protection</h3><div id="groq-usage" class="small">Loading daily usage...</div><p class="small">Safety budgets are tracked using Nepal time. If both AI providers are unavailable, eligible stories are saved in a persistent recovery queue and retried with longer intervals for up to 7 days. Stories older than 72 hours are not auto-published, to avoid posting stale news. RSS feed checks continue. This cannot override provider quotas.</p></section>
 <button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div></details>
-<section class="panel"><h2>Facebook publishing</h2>
+<section class="panel" id="facebook-publishing-panel">
+<h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
 <p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on. Posts with uncertain results are not retried automatically; check your Page first.</p>
-<div id="facebook-status" class="small">Loading Facebook publishing status...</div></section>
+<div id="facebook-status" class="small" role="status" aria-live="polite">Loading Facebook publishing status...</div>
+<div id="facebook-history" class="small" aria-live="polite">Loading publication history...</div>
+<button type="button" class="secondary" id="refresh-facebook-status" onclick="loadFacebookStatus()">Refresh Facebook status</button>
+</section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
 <p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
 <form class="filters" method="get" action="/">
@@ -197,17 +201,44 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
 async function loadFacebookStatus(){
- const target=document.getElementById("facebook-status");if(!target)return;
+ const statusTarget=document.getElementById("facebook-status");
+ const historyTarget=document.getElementById("facebook-history");
+ const refreshButton=document.getElementById("refresh-facebook-status");
+ if(!statusTarget||!historyTarget)return;
+ if(refreshButton)refreshButton.disabled=true;
+ statusTarget.textContent="Checking Facebook configuration...";
+ historyTarget.textContent="Loading recent publishing results...";
  try{
-  const response=await fetch("/facebook-status",{credentials:"same-origin",cache:"no-store"});
-  if(!response.ok)throw new Error("Facebook status unavailable");
-  const data=await response.json(),c=data.history.counts||{};
-  target.textContent="Configuration: "+(data.config.enabled?(data.config.credentials_present?"CONFIGURED · permissions not verified":"INCOMPLETE"):"DISABLED")+
-   " · Page ID "+(data.config.page_id_configured?"set":"missing")+
-   " · Page token "+(data.config.page_token_configured?"set":"missing")+
-   " · History: "+(c.published||0)+" published, "+(c.failed||0)+" failed, "+
-   (c.unknown||0)+" uncertain, "+(c.publishing||0)+" in progress.";
- }catch(error){target.textContent="Could not load Facebook publishing status."}
+  const response=await fetch("/facebook-status",{credentials:"same-origin",cache:"no-store",headers:{"Accept":"application/json"}});
+  if(response.status===401||response.status===403)throw new Error("Your admin session has expired or lacks permission. Sign in again to view Facebook status.");
+  if(!response.ok)throw new Error("Facebook status request failed (HTTP "+response.status+").");
+  const data=await response.json();
+  const config=data.config||{},history=data.history||{},counts=history.counts||{};
+  const line=document.createElement("p");
+  line.textContent="Configuration: "+(config.enabled?(config.credentials_present?"Configured · permissions not verified":"Incomplete · add missing Page credentials"):"Disabled")+
+   " · Page ID: "+(config.page_id_configured?"configured":"missing")+
+   " · Page access token: "+(config.page_token_configured?"configured":"missing");
+  statusTarget.replaceChildren(line);
+  const totals=document.createElement("p");
+  totals.textContent="Publication totals: "+(counts.published||0)+" published · "+(counts.failed||0)+" failed · "+(counts.unknown||0)+" uncertain · "+(counts.publishing||0)+" in progress.";
+  const heading=document.createElement("p");heading.textContent="Recent publication attempts:";
+  const list=document.createElement("ul");
+  const records=Array.isArray(history.recent)?history.recent:[];
+  if(!records.length){const empty=document.createElement("li");empty.textContent="No Facebook publication attempts have been recorded yet.";list.append(empty);}
+  records.slice(0,10).forEach(record=>{
+   const item=document.createElement("li");
+   const when=record.updated_at?new Date(record.updated_at).toLocaleString():"time unavailable";
+   item.textContent="Draft "+String(record.item_id||"—")+" · "+String(record.status||"unknown")+" · "+when+
+    (record.error_code?" · Error code: "+String(record.error_code):"")+
+    (record.error_message?" · "+String(record.error_message):"")+
+    (record.post_id?" · Facebook post ID: "+String(record.post_id):"");
+   list.append(item);
+  });
+  historyTarget.replaceChildren(totals,heading,list);
+ }catch(error){
+  statusTarget.textContent=error.message||"Could not load Facebook configuration status.";
+  historyTarget.textContent="Publication history could not be loaded. Refresh after signing in again.";
+ }finally{if(refreshButton)refreshButton.disabled=false;}
 }
 async function loadGroqUsage(){
  const target=document.getElementById("groq-usage");if(!target)return;
