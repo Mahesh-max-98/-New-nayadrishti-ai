@@ -46,10 +46,16 @@ class PrepareNewsPostTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Nepali script"):
             prepare_news_post(generated)
 
-    def test_rejects_too_few_useful_lines(self):
+    def test_accepts_short_post_with_only_available_facts(self):
         generated = "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\nनयाँ नीति लागू हुने भएको छ।"
-        with self.assertRaisesRegex(RuntimeError, "3 to 10"):
-            prepare_news_post(generated)
+        result = prepare_news_post(generated)
+        self.assertEqual(len(result.splitlines()), 2)
+
+    def test_accepts_headline_only_post_without_padding(self):
+        generated = "सरकारले नयाँ नीति सार्वजनिक गरेको छ।"
+        result = prepare_news_post(generated)
+        self.assertEqual(len(result.splitlines()), 1)
+        self.assertIn("सरकारले नयाँ नीति", result)
 
 
     def test_accepts_ten_useful_lines(self):
