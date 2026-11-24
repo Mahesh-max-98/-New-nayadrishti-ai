@@ -54,6 +54,14 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
             "भूकम्पपछि उद्धार कार्य जारी", "Onlinekhabar",
             "https://www.onlinekhabar.com/story", now - 1800, now=now,
         ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "Major policy announced by government", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 1800, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "बाढी प्रभावित क्षेत्रमा राहत वितरण", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 5 * 3600, now=now,
+        ))
 
 
 if __name__ == "__main__":
