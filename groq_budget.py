@@ -60,6 +60,16 @@ def _ensure_table():
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+        with _connect() as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS gemini_daily_usage (
+                    usage_date DATE PRIMARY KEY,
+                    requests_started INTEGER NOT NULL DEFAULT 0,
+                    posts_created INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         _schema_ready = True
 
 
@@ -80,8 +90,12 @@ def get_groq_usage_status():
     limits = _limits()
     with _connect() as db:
         _ensure_day(db, day)
+        db.execute("INSERT INTO gemini_daily_usage (usage_date) VALUES (%s) ON CONFLICT DO NOTHING", (day,))
         row = db.execute(
             "SELECT * FROM groq_daily_usage WHERE usage_date=%s", (day,)
+        ).fetchone()
+        fallback_row = db.execute(
+            "SELECT * FROM gemini_daily_usage WHERE usage_date=%s", (day,)
         ).fetchone()
     now = datetime.now(_NPT)
     paused_until = row["paused_until"]
@@ -93,7 +107,10 @@ def get_groq_usage_status():
         "tokens": int(row["tokens_used"]),
         "reserved_tokens": int(row["reserved_tokens"]),
         "token_limit": limits["token_limit"],
-        "posts_created": int(row["posts_created"]),
+        "posts_created": int(row["posts_created"]) + int(fallback_row["posts_created"]),
+        "groq_posts_created": int(row["posts_created"]),
+        "fallback_posts_created": int(fallback_row["posts_created"]),
+        "fallback_requests": int(fallback_row["requests_started"]),
         "post_limit": limits["post_limit"],
         "paused": paused,
         "paused_until": paused_until.isoformat() if paused_until else None,
@@ -101,7 +118,7 @@ def get_groq_usage_status():
         "last_error": row["last_error"],
         "requests_remaining": max(0, limits["request_limit"] - int(row["requests_started"])),
         "tokens_remaining": max(0, limits["token_limit"] - int(row["tokens_used"]) - int(row["reserved_tokens"])),
-        "posts_remaining": max(0, limits["post_limit"] - int(row["posts_created"])),
+        "posts_remaining": max(0, limits["post_limit"] - int(row["posts_created"]) - int(fallback_row["posts_created"])),
     }
 
 
@@ -114,14 +131,18 @@ def reserve_groq_request(estimated_tokens):
     now = datetime.now(_NPT)
     with _connect() as db:
         _ensure_day(db, day)
+        db.execute("INSERT INTO gemini_daily_usage (usage_date) VALUES (%s) ON CONFLICT DO NOTHING", (day,))
         row = db.execute(
             "SELECT * FROM groq_daily_usage WHERE usage_date=%s FOR UPDATE", (day,)
+        ).fetchone()
+        fallback_row = db.execute(
+            "SELECT posts_created FROM gemini_daily_usage WHERE usage_date=%s FOR UPDATE", (day,)
         ).fetchone()
         if row["paused_until"] and row["paused_until"] > now:
             return {"allowed": False, "reason": row["pause_reason"] or "Groq is temporarily paused."}
         if int(row["requests_started"]) >= limits["request_limit"]:
             return {"allowed": False, "reason": "NayaDrishti daily Groq request safety budget reached."}
-        if int(row["posts_created"]) >= limits["post_limit"]:
+        if int(row["posts_created"]) + int(fallback_row["posts_created"]) >= limits["post_limit"]:
             return {"allowed": False, "reason": "NayaDrishti daily news-post target reached."}
         if int(row["tokens_used"]) + int(row["reserved_tokens"]) + estimate > limits["token_limit"]:
             return {"allowed": False, "reason": "NayaDrishti daily token safety budget reached."}

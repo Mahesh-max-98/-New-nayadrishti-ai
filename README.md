@@ -114,3 +114,10 @@ The writing pipeline now requests a clear event-first headline, a concise lead, 
 ## Phase 9 — smart categories and breaking-news signals
 
 New drafts are assigned a primary topic category using transparent Nepali/English keyword matching: politics, sports, economy, education, technology, international, or other. The dashboard can filter pending drafts by category or show only potential breaking-news candidates. Potential breaking labels require urgent wording, a higher-priority publisher, and a publication time within the last two hours. This is a triage heuristic, not verification or a guarantee that a story is breaking; editors must open the original report and confirm details. Existing drafts receive the database defaults until new drafts are collected. Breaking candidates are displayed before other pending drafts. Facebook publishing remains OFF by default.
+
+
+## Phase 13 — backup AI provider and recovery
+
+Groq remains the primary writer. If Groq is unavailable because its daily request/token safety budget is reached, it returns HTTP 429, or it has an authentication/provider outage (401/403/selected 5xx), NayaDrishti can try Google Gemini using a separately authorized API key. Configure `GEMINI_API_KEY` in Render; `GEMINI_MODEL` defaults to `gemini-2.5-flash`. The Gemini fallback has its own daily request ceiling (`MAX_FALLBACK_AI_REQUESTS_PER_DAY`, default 50) and shares the overall `MAX_NEWS_POSTS_PER_DAY` ceiling with Groq-created drafts. Provider quotas and billing are independent and still apply; fallback is not a guarantee of uninterrupted generation.
+
+If both providers fail, the story is not marked as seen and remains eligible for a later feed scan. All output goes through the same Nepali quality validation. Facebook publishing remains controlled separately by `ENABLE_FACEBOOK_PUBLISHING` and stays OFF by default.
