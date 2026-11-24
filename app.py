@@ -16,6 +16,7 @@ from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
 from legal_pages import register_legal_routes
 from review_gate import review_checklist_complete
+from story_quality import editorial_quality_flags
 
 app = Flask(__name__)
 register_legal_routes(app)
@@ -221,6 +222,8 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 {% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
 {% for d in drafts %}<article class="draft">{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span><p class="small">{{ d.breaking_reason }}</p>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
 <p class="small">Source: {{ d.source or "Original publisher" }}</p>
+{% if d.quality_flags %}<details class="quality-review" open><summary><strong>Automatic review flags ({{ d.quality_flags|length }})</strong> <span class="small">— please check before approving</span></summary><ul>{% for flag in d.quality_flags %}<li>{{ flag }}</li>{% endfor %}</ul><p class="small">These are warning signals only, not proof that a draft is wrong or correct.</p></details>
+{% else %}<p class="small"><strong>Automatic review flags:</strong> No basic warning detected. This does not mean the story is verified.</p>{% endif %}
 <p class="small"><strong>Coverage check:</strong>
 {% if d.verification_status == "matching_coverage" %}Similar reports found from {{ d.verification_count }} publishers.
 {% elif d.verification_status == "needs_comparison" %}Needs manual comparison — reports contain different numbers.
@@ -512,6 +515,10 @@ def home():
     category_options = ["राजनीति", "खेलकुद", "अर्थतन्त्र", "शिक्षा", "प्रविधि", "अन्तर्राष्ट्रिय", "अन्य"]
     category_counts = {category: sum(1 for draft in all_drafts if (draft.get("category") or "अन्य") == category) for category in category_options}
     breaking_count = sum(1 for draft in all_drafts if draft.get("is_breaking"))
+    for draft in all_drafts:
+        draft["quality_flags"] = editorial_quality_flags(
+            draft.get("summary"), draft.get("title"), draft.get("article_text")
+        )
     drafts = [
         draft for draft in all_drafts
         if (not selected_category or (draft.get("category") or "अन्य") == selected_category)
