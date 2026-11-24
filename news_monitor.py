@@ -397,6 +397,38 @@ def _build_non_ai_headline_post(title, publisher):
     )
 
 
+def _save_short_source_headline_for_review(item_id, title, publisher, article_url,
+                                           published_timestamp=None, on_new_draft=None, result=None):
+    """Keep fresh headline-only items visible for manual review; never auto-publish them."""
+    headline = clean_text(title, 260)
+    if not headline or not article_url.startswith(("https://", "http://")):
+        return False
+    post_text = _build_non_ai_headline_post(headline, publisher)
+    is_breaking, breaking_reason = detect_breaking_news(
+        headline, "", publisher, published_timestamp
+    )
+    verification = assess_cross_source_coverage(headline, publisher)
+    save_draft(
+        item_id, headline, publisher, article_url, post_text,
+        language="ne", verification=verification, category="स्रोत शीर्षक",
+        is_breaking=is_breaking, breaking_reason=breaking_reason,
+    )
+    if on_new_draft:
+        try:
+            on_new_draft({"title": headline, "source": publisher})
+        except Exception:
+            log.exception("Could not publish short-source headline to dashboard")
+    set_draft_status(item_id, "draft")
+    remember(item_id, headline, publisher, article_url, "draft")
+    if result is not None:
+        result["drafts_saved"] += 1
+        result["new_items"] += 1
+        result["short_source_review_drafts"] = result.get("short_source_review_drafts", 0) + 1
+        if is_breaking:
+            result["breaking_candidates"] += 1
+    return True
+
+
 def _publish_non_ai_headline(item_id, title, publisher, article_url, published_timestamp=None,
                              on_new_draft=None, result=None):
     """Save/publish a clearly labelled headline-only notice during AI provider outages."""
@@ -625,10 +657,15 @@ def check_feeds(on_new_draft=None):
                 # Save the source material before attempting AI writing. If both
                 # providers are down, this story survives feed freshness windows.
                 article_text = fetch_article_text(article_url, rss_description)
-                if len(article_text) < 80:
-                    log.info("Skipping story with too little source text: %s", title)
-                    continue
                 timestamp = _entry_timestamp(entry)
+                if len(article_text) < 80:
+                    log.info("Saving headline-only item for manual review; source text is too short: %s", title)
+                    _save_short_source_headline_for_review(
+                        item_id, title, publisher, article_url,
+                        published_timestamp=timestamp,
+                        on_new_draft=on_new_draft, result=result,
+                    )
+                    continue
                 published_at = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp else None
                 enqueue_pending_story(
                     item_id, title, publisher, article_url, article_text,

@@ -20,16 +20,45 @@ class PendingStoryRetryScheduleTests(unittest.TestCase):
 
 
 class NonAiHeadlineFallbackTests(unittest.TestCase):
-    def test_post_is_transparent_and_links_to_original(self):
+    def test_post_contains_only_the_requested_heading_and_headline(self):
         from news_monitor import _build_non_ai_headline_post
         post = _build_non_ai_headline_post(
             "नेपालमा नयाँ समाचार शीर्षक",
-            "https://example.com/story",
+            "Onlinekhabar",
         )
-        self.assertIn("AI सारांश उपलब्ध छैन", post)
-        self.assertIn("नेपालमा नयाँ समाचार शीर्षक", post)
-        self.assertIn("https://example.com/story", post)
-        self.assertIn("मूल समाचारको शीर्षक", post)
+        self.assertEqual(post, "📰 समाचार अपडेट\n\nनेपालमा नयाँ समाचार शीर्षक")
+        self.assertNotIn("स्रोत:", post)
+        self.assertNotIn("Onlinekhabar", post)
+        self.assertNotIn("http", post)
+
+    def test_short_source_headline_is_saved_for_review_not_published(self):
+        from unittest.mock import patch
+        import news_monitor
+
+        result = {"drafts_saved": 0, "new_items": 0, "breaking_candidates": 0}
+        callback_items = []
+        with (
+            patch.object(news_monitor, "detect_breaking_news", return_value=(False, "")),
+            patch.object(news_monitor, "assess_cross_source_coverage", return_value="single_source"),
+            patch.object(news_monitor, "save_draft") as save_draft,
+            patch.object(news_monitor, "set_draft_status") as set_status,
+            patch.object(news_monitor, "remember") as remember,
+            patch.object(news_monitor, "_publish_facebook_tracked") as publish,
+        ):
+            saved = news_monitor._save_short_source_headline_for_review(
+                "item-1", "नेपालमा नयाँ समाचार शीर्षक", "Onlinekhabar",
+                "https://example.com/story", published_timestamp=1800000000,
+                on_new_draft=callback_items.append, result=result,
+            )
+
+        self.assertTrue(saved)
+        self.assertEqual(result["short_source_review_drafts"], 1)
+        self.assertEqual(result["new_items"], 1)
+        self.assertEqual(len(callback_items), 1)
+        self.assertTrue(save_draft.called)
+        self.assertTrue(set_status.called)
+        self.assertTrue(remember.called)
+        publish.assert_not_called()
 
     def test_only_fresh_high_priority_nonbreaking_https_items_are_eligible(self):
         from news_monitor import _non_ai_headline_is_eligible
