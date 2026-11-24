@@ -19,10 +19,6 @@ class PendingStoryRetryScheduleTests(unittest.TestCase):
         self.assertEqual(pending_retry_delay_seconds("not-a-number"), 900)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class NonAiHeadlineFallbackTests(unittest.TestCase):
     def test_post_is_transparent_and_links_to_original(self):
         from news_monitor import _build_non_ai_headline_post
@@ -58,3 +54,7 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
             "भूकम्पपछि उद्धार कार्य जारी", "Onlinekhabar",
             "https://www.onlinekhabar.com/story", now - 1800, now=now,
         ))
+
+
+if __name__ == "__main__":
+    unittest.main()
