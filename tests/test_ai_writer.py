@@ -136,9 +136,9 @@ class GroqMultiKeyFailoverTests(unittest.TestCase):
             "GROQ_API_KEY_3": "test-third",
             "GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0",
         }
-        with patch.dict("os.environ", env, clear=True), \\
-             patch("ai_writer._post_to_groq", side_effect=[invalid, success]) as post:
-            response = ai_writer._post_to_groq_with_failover(payload={"model": "test"})
+        with patch.dict("os.environ", env, clear=True):
+            with patch("ai_writer._post_to_groq", side_effect=[invalid, success]) as post:
+                response = ai_writer._post_to_groq_with_failover(payload={"model": "test"})
         self.assertTrue(response.ok)
         self.assertEqual(post.call_count, 2)
         self.assertEqual(post.call_args_list[0].kwargs["headers"]["Authorization"], "Bearer test-primary")
@@ -154,9 +154,9 @@ class GroqMultiKeyFailoverTests(unittest.TestCase):
             "GROQ_API_KEY_2": "test-backup",
             "GROQ_MIN_REQUEST_INTERVAL_SECONDS": "0",
         }
-        with patch.dict("os.environ", env, clear=True), \\
-             patch("ai_writer._post_to_groq", side_effect=[limited, success]) as post:
-            response = ai_writer._post_to_groq_with_failover(payload={"model": "test"})
+        with patch.dict("os.environ", env, clear=True):
+            with patch("ai_writer._post_to_groq", side_effect=[limited, success]) as post:
+                response = ai_writer._post_to_groq_with_failover(payload={"model": "test"})
         self.assertEqual(response.status_code, 429)
         self.assertEqual(post.call_count, 1)
 
