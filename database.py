@@ -266,6 +266,21 @@ def get_draft_revision_history(item_id, limit=10):
     return [dict(row) for row in rows]
 
 
+def bulk_dismiss_pending_drafts(item_ids):
+    """Dismiss a bounded set of explicitly selected pending drafts without deleting them."""
+    ids = list(dict.fromkeys(str(item_id) for item_id in (item_ids or []) if item_id))
+    if not ids:
+        return 0
+    if len(ids) > 50:
+        raise ValueError("A maximum of 50 drafts can be dismissed at once.")
+    with connection() as db:
+        result = db.execute("""
+            UPDATE drafts SET status='rejected'
+            WHERE status='draft' AND item_id = ANY(%s)
+        """, (ids,))
+        return max(0, int(result.rowcount or 0))
+
+
 def set_draft_status(item_id, status):
     with connection() as db:
         db.execute("UPDATE drafts SET status=%s WHERE item_id=%s AND status=%s", (status, item_id, "draft"))
