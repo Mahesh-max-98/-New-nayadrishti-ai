@@ -4,6 +4,8 @@ from contextlib import contextmanager
 import psycopg
 from psycopg.rows import dict_row
 
+from story_quality import normalize_story_title as _normalize_story_title, similar_story_titles
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
@@ -186,14 +188,6 @@ def set_draft_status(item_id, status):
 
 
 
-def _normalize_story_title(title):
-    """Normalize punctuation and spacing while preserving Nepali and English words."""
-    import re
-    value = (title or "").casefold()
-    value = re.sub(r"[^\w]+", " ", value, flags=re.UNICODE)
-    return " ".join(value.split())
-
-
 def _normalize_story_url(url):
     """Ignore fragments and common tracking parameters when comparing article URLs."""
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -213,29 +207,30 @@ def _normalize_story_url(url):
         return (url or "").strip().rstrip("/")
 
 
-def already_seen_story(title, url, similarity_threshold=0.90):
-    """Catch duplicate stories shared across feeds, including slightly edited headlines."""
-    from difflib import SequenceMatcher
-
-    normalized_title = _normalize_story_title(title)
+def already_seen_story(title, url, similarity_threshold=0.88):
+    """Catch duplicate stories across seen, saved-draft and pending records."""
     normalized_url = _normalize_story_url(url)
+    normalized_title = _normalize_story_title(title)
     if not normalized_title:
         return False
     with connection() as db:
         rows = db.execute("""
-            SELECT title, url FROM seen_items
+            SELECT title, url, created_at FROM seen_items
+            UNION ALL
+            SELECT title, url, created_at FROM drafts
+            UNION ALL
+            SELECT title, url, created_at FROM pending_stories
+            WHERE status='pending'
             ORDER BY created_at DESC
-            LIMIT 500
+            LIMIT 1000
         """).fetchall()
 
     for row in rows:
         previous_url = _normalize_story_url(row.get("url"))
         if normalized_url and previous_url and normalized_url == previous_url:
             return True
-        previous_title = _normalize_story_title(row.get("title"))
-        if len(normalized_title) >= 18 and len(previous_title) >= 18:
-            if SequenceMatcher(None, normalized_title, previous_title).ratio() >= similarity_threshold:
-                return True
+        if similar_story_titles(title, row.get("title"), similarity_threshold):
+            return True
     return False
 
 
