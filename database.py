@@ -95,6 +95,19 @@ def init_db():
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS news_source_health (
+                source_name TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'unknown',
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                last_checked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_success_at TIMESTAMPTZ,
+                last_http_status INTEGER,
+                last_entries_found INTEGER NOT NULL DEFAULT 0,
+                last_duration_ms INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT ''
+            )
+        """)
         # Preserve the previous authentication failure as a persistent safety stop.
         db.execute("""
             INSERT INTO facebook_publishing_control (id, auth_blocked, reason)
@@ -530,3 +543,57 @@ def get_facebook_publication_status(limit=30):
         "counts": {key: int(value or 0) for key, value in counts.items()},
         "recent": [dict(row) for row in rows],
     }
+
+
+
+def record_news_source_health(source_name, status, http_status=None, entries_found=0, duration_ms=0, error=""):
+    """Persist the latest health result for one configured news feed."""
+    source_name = str(source_name or "Unknown source").strip()[:160]
+    status = status if status in {"healthy", "warning", "error"} else "error"
+    safe_error = str(error or "")[:300]
+    with connection() as db:
+        db.execute("""
+            INSERT INTO news_source_health (
+                source_name, status, consecutive_failures, last_checked_at,
+                last_success_at, last_http_status, last_entries_found,
+                last_duration_ms, last_error
+            ) VALUES (
+                %s, %s, %s, CURRENT_TIMESTAMP,
+                CASE WHEN %s = 'healthy' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                %s, %s, %s, %s
+            )
+            ON CONFLICT (source_name) DO UPDATE SET
+                status=EXCLUDED.status,
+                consecutive_failures=CASE
+                    WHEN EXCLUDED.status = 'healthy' THEN 0
+                    ELSE news_source_health.consecutive_failures + 1
+                END,
+                last_checked_at=CURRENT_TIMESTAMP,
+                last_success_at=CASE
+                    WHEN EXCLUDED.status = 'healthy' THEN CURRENT_TIMESTAMP
+                    ELSE news_source_health.last_success_at
+                END,
+                last_http_status=EXCLUDED.last_http_status,
+                last_entries_found=EXCLUDED.last_entries_found,
+                last_duration_ms=EXCLUDED.last_duration_ms,
+                last_error=EXCLUDED.last_error
+        """, (
+            source_name, status, 0 if status == "healthy" else 1, status,
+            http_status, max(0, int(entries_found or 0)),
+            max(0, int(duration_ms or 0)), safe_error,
+        ))
+
+
+def get_news_source_health(limit=100):
+    """Return persistent source health without exposing configured feed URLs."""
+    with connection() as db:
+        rows = db.execute("""
+            SELECT source_name, status, consecutive_failures, last_checked_at,
+                   last_success_at, last_http_status, last_entries_found,
+                   last_duration_ms, last_error
+            FROM news_source_health
+            ORDER BY CASE status WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+                     consecutive_failures DESC, source_name ASC
+            LIMIT %s
+        """, (max(1, min(int(limit), 200)),)).fetchall()
+        return [dict(row) for row in rows]
