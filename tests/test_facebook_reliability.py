@@ -78,7 +78,7 @@ class FacebookDuplicateProtectionTests(unittest.TestCase):
         reserve.return_value = {"reserved": True, "status": "publishing"}
         outcome = news_monitor._publish_facebook_tracked("story-3", "post")
         self.assertEqual(outcome["status"], "unknown")
-        self.assertIn("check the Page", finish.call_args.kwargs["error_message"])
+        self.assertIn("Check the Page", finish.call_args.kwargs["error_message"])
 
 
 if __name__ == "__main__":
