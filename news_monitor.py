@@ -305,10 +305,12 @@ def check_feeds(on_new_draft=None):
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
     ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "5")), 5))
     usage_at_start = get_groq_usage_status()
-    ai_paused_for_scan = bool(usage_at_start["paused"] or not usage_at_start["requests_remaining"] or not usage_at_start["tokens_remaining"] or not usage_at_start["posts_remaining"])
+    # Groq request/token pauses do not stop the scan: write_summary can use Gemini.
+    # The shared daily post ceiling still stops additional AI drafting. 
+    ai_paused_for_scan = bool(not usage_at_start["posts_remaining"])
     if ai_paused_for_scan:
         result["ai_budget_paused"] = True
-        result["ai_budget_reason"] = usage_at_start.get("pause_reason") or "Daily NayaDrishti safety budget reached."
+        result["ai_budget_reason"] = "Daily NayaDrishti news-post ceiling reached."
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
@@ -390,13 +392,11 @@ def check_feeds(on_new_draft=None):
                         f"{publisher} summary failed: {type(exc).__name__}: {str(exc)[:140]}"
                     )
                     log.warning("AI summary failed for %s (%s): %s", publisher, title[:100], exc)
-                    if "GROQ_BUDGET_PAUSED" in str(exc):
-                        result["ai_requests"] = max(0, result["ai_requests"] - 1)
+                    if "GEMINI_BUDGET_PAUSED" in str(exc):
                         ai_paused_for_scan = True
                         result["ai_budget_paused"] = True
                         result["ai_budget_reason"] = str(exc)[:220]
                     elif "Groq API error 429" in str(exc) or "Groq API error 413" in str(exc):
-                        ai_paused_for_scan = True
                         result["ai_provider_paused"] = True
                     continue
 
