@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -191,17 +192,17 @@ def fetch_feed(url):
 
     client = requests.Session()
     retry = Retry(
-        total=2, connect=2, read=1, status=2, backoff_factor=1,
-        status_forcelist=(429, 500, 502, 503, 504),
+        total=1, connect=1, read=0, status=1, backoff_factor=0.2,
+        status_forcelist=(500, 502, 503, 504),
         allowed_methods=frozenset(["GET"]),
-        respect_retry_after_header=True, raise_on_status=False,
+        respect_retry_after_header=False, raise_on_status=False,
     )
     client.mount("https://", HTTPAdapter(max_retries=retry))
     client.mount("http://", HTTPAdapter(max_retries=retry))
     response = client.get(
         url,
         headers={"User-Agent": "Mozilla/5.0 (compatible; NayaDrishtiAI/1.0; RSS reader)"},
-        timeout=(8, 18),
+        timeout=(5, 10),
     )
     response.raise_for_status()
     parsed = feedparser.parse(response.content)
@@ -256,7 +257,7 @@ def fetch_article_text(article_url, fallback_description=""):
         with requests.get(
             article_url,
             headers={"User-Agent": "Mozilla/5.0 (compatible; NayaDrishtiAI/1.0; news reader)"},
-            timeout=(8, 15),
+            timeout=(5, 8),
             stream=True,
             allow_redirects=True,
         ) as response:
@@ -269,7 +270,7 @@ def fetch_article_text(article_url, fallback_description=""):
                     continue
                 chunks.append(chunk)
                 total += len(chunk)
-                if total >= 900_000:
+                if total >= 400_000:
                     break
             parser = _ArticleTextParser()
             parser.feed(b"".join(chunks).decode(response.encoding or "utf-8", errors="ignore"))
@@ -535,7 +536,7 @@ def _provider_failure_pauses_scan(error_text, result):
     return False
 
 
-def check_feeds(on_new_draft=None):
+def check_feeds(on_new_draft=None, on_progress=None):
     feeds = configured_feeds()
     result = {
         "feeds_configured": len(feeds), "feeds_checked": 0, "new_items": 0,
@@ -545,6 +546,8 @@ def check_feeds(on_new_draft=None):
         "feed_details": [], "queued_for_retry": 0, "pending_processed": 0,
         "pending_expired": 0, "non_ai_fallback_drafts": 0,
         "non_ai_fallback_published": 0, "non_ai_fallback_skipped": 0,
+        "undated_review_candidates": 0, "undated_review_drafts": 0,
+        "article_fetches": 0, "feeds_processed": 0,
     }
     if not feeds:
         result["errors"].append("No RSS feeds configured.")
@@ -553,6 +556,12 @@ def check_feeds(on_new_draft=None):
     per_feed_limit = max(1, min(int(os.getenv("MAX_STORIES_PER_FEED", "2")), 5))
     freshness_hours = max(1, min(int(os.getenv("NEWS_MAX_AGE_HOURS", "36")), 168))
     ai_request_limit = max(1, min(int(os.getenv("MAX_AI_REQUESTS_PER_SCAN", "2")), 3))
+    try:
+        article_fetch_limit = int(os.getenv("MAX_ARTICLE_FETCHES_PER_SCAN", "8"))
+    except (TypeError, ValueError):
+        article_fetch_limit = 8
+    article_fetch_limit = max(0, min(article_fetch_limit, 20))
+    article_fetches = 0
     usage_at_start = get_groq_usage_status()
     # Groq request/token pauses do not stop the scan: write_summary can use Gemini.
     # The shared daily post ceiling still stops additional AI drafting. 
@@ -637,17 +646,33 @@ def check_feeds(on_new_draft=None):
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
-    for feed_name, feed_url in feeds:
+    # Fetch RSS feeds concurrently so one slow publisher cannot stall the full scan.
+    feed_executor = ThreadPoolExecutor(max_workers=min(8, len(feeds)), thread_name_prefix="rss-feed")
+    feed_futures = {
+        (name, url): feed_executor.submit(fetch_feed, url)
+        for name, url in feeds
+    }
+    for feed_index, (feed_name, feed_url) in enumerate(feeds, start=1):
+        if on_progress:
+            try:
+                on_progress({
+                    "phase": "checking_feed", "feeds_processed": feed_index - 1,
+                    "feeds_total": len(feeds), "source": feed_name,
+                    "drafts_saved": result["drafts_saved"],
+                })
+            except Exception:
+                log.exception("Could not update news-check progress")
         if result["ai_requests"] >= ai_request_limit:
             result["ai_limit_reached"] = True
         detail = {
             "source": feed_name, "entries_found": 0, "new_items": 0,
             "already_seen": 0, "stale_skipped": 0, "undated_skipped": 0,
-            "fresh_candidates": 0, "error": None, "story_errors": 0,
+            "undated_review_drafts": 0, "fresh_candidates": 0,
+            "error": None, "story_errors": 0,
             "priority": source_priority_label(feed_name),
         }
         try:
-            parsed = fetch_feed(feed_url)
+            parsed = feed_futures[(feed_name, feed_url)].result()
             result["feeds_checked"] += 1
             entries = sorted(
                 parsed.entries,
@@ -666,16 +691,17 @@ def check_feeds(on_new_draft=None):
                     continue
 
                 fresh, reason = _is_fresh_entry(entry, freshness_hours)
-                if not fresh:
-                    if reason == "missing publication date":
-                        detail["undated_skipped"] += 1
-                        result["undated_skipped"] += 1
-                    else:
-                        detail["stale_skipped"] += 1
-                        result["stale_skipped"] += 1
+                undated = reason == "missing publication date"
+                if not fresh and not undated:
+                    detail["stale_skipped"] += 1
+                    result["stale_skipped"] += 1
                     continue
-                detail["fresh_candidates"] += 1
-                result["fresh_candidates"] += 1
+                if undated:
+                    detail["undated_review_candidates"] = detail.get("undated_review_candidates", 0) + 1
+                    result["undated_review_candidates"] += 1
+                else:
+                    detail["fresh_candidates"] += 1
+                    result["fresh_candidates"] += 1
 
                 if feed_name.startswith("Google News - "):
                     publisher, title = _publisher_from_google_title(
@@ -692,10 +718,30 @@ def check_feeds(on_new_draft=None):
                     result["already_seen"] += 1
                     continue
 
+                # Undated items can be reviewed by a person but are never queued
+                # for AI auto-publishing because their freshness cannot be verified.
+                if undated:
+                    if _save_short_source_headline_for_review(
+                        item_id, title, publisher, article_url,
+                        published_timestamp=None,
+                        on_new_draft=on_new_draft, result=result,
+                    ):
+                        detail["new_items"] += 1
+                        detail["undated_review_drafts"] += 1
+                        result["undated_review_drafts"] += 1
+                    continue
+
                 # Save the source material before attempting AI writing. If both
                 # providers are down, this story survives feed freshness windows.
-                article_text = fetch_article_text(article_url, rss_description)
                 timestamp = _entry_timestamp(entry)
+                if len(rss_description) >= 350:
+                    article_text = rss_description
+                elif article_fetches < article_fetch_limit:
+                    article_fetches += 1
+                    result["article_fetches"] = article_fetches
+                    article_text = fetch_article_text(article_url, rss_description)
+                else:
+                    article_text = rss_description
                 if len(article_text) < 80:
                     log.info("Saving headline-only item for manual review; source text is too short: %s", title)
                     if _save_short_source_headline_for_review(
@@ -769,6 +815,19 @@ def check_feeds(on_new_draft=None):
             result["errors"].append(f"{feed_name}: {detail['error']}")
         finally:
             result["feed_details"].append(detail)
+            result["feeds_processed"] = feed_index
+            if on_progress:
+                try:
+                    on_progress({
+                        "phase": "checking_feed", "feeds_processed": feed_index,
+                        "feeds_total": len(feeds), "source": feed_name,
+                        "drafts_saved": result["drafts_saved"],
+                        "undated_review_drafts": result["undated_review_drafts"],
+                    })
+                except Exception:
+                    log.exception("Could not update news-check progress")
+
+    feed_executor.shutdown(wait=True, cancel_futures=True)
 
     result["pending_queue"] = get_pending_queue_status()
     result["groq_usage"] = get_groq_usage_status()
@@ -777,14 +836,16 @@ def check_feeds(on_new_draft=None):
     )
     result["note"] = (
         "Text-only Nepali news. No images are fetched, generated, stored, or published. "
-        "The article text is preferred over RSS teasers, duplicate headlines are skipped, "
+        "Article text is preferred when RSS teasers are short; undated headlines are saved for manual review only. "
+        "RSS feeds are fetched concurrently with short timeouts and bounded retries. "
+        "Duplicate headlines are skipped, "
         "publisher feeds are checked by editorial priority, and story candidates are ranked by publisher priority, topic signals and freshness. "
         "Priority is a discovery aid, not a guarantee of accuracy. Cross-source labels identify similar headlines from different publishers, not verified facts; differing numbers are flagged for manual comparison."
     )
     log.info(
-        "News scan complete: checked=%s/%s new=%s drafts=%s published=%s duplicates=%s errors=%s",
-        result["feeds_checked"], result["feeds_configured"], result["new_items"],
-        result["drafts_saved"], result["published"], result["already_seen"],
-        len(result["errors"]),
+        "News scan complete: checked=%s/%s processed=%s new=%s drafts=%s undated_review=%s published=%s duplicates=%s errors=%s",
+        result["feeds_checked"], result["feeds_configured"], result["feeds_processed"],
+        result["new_items"], result["drafts_saved"], result["undated_review_drafts"],
+        result["published"], result["already_seen"], len(result["errors"]),
     )
     return result
