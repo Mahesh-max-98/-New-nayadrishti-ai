@@ -387,15 +387,14 @@ def _non_ai_headline_is_eligible(title, publisher, article_url, published_timest
     return not is_breaking
 
 
-def _build_non_ai_headline_post(title, article_url):
-    """Create a transparent link notice; never copy or summarize article text."""
+def _build_non_ai_headline_post(title, publisher):
+    """Create a clean publisher-attributed headline notice without a raw URL."""
     headline = clean_text(title, 260)
+    source = clean_text(publisher, 100)
     return (
-        "📰 समाचार अपडेट (AI सारांश उपलब्ध छैन)\n\n"
+        "📰 समाचार अपडेट\n\n"
         f"{headline}\n\n"
-        "यो सूचना मूल समाचारको शीर्षक र लिंकमा मात्र आधारित छ। "
-        f"थप विवरणका लागि मूल समाचार खोल्नुहोस्: {article_url}\n\n"
-        "📰"
+        f"स्रोत: {source}"
     )
 
 
@@ -416,7 +415,7 @@ def _publish_non_ai_headline(item_id, title, publisher, article_url, published_t
             result["non_ai_fallback_skipped"] += 1
         return False
 
-    post_text = _build_non_ai_headline_post(title, article_url)
+    post_text = _build_non_ai_headline_post(title, publisher)
     verification = assess_cross_source_coverage(title, publisher)
     save_draft(
         item_id, title, publisher, article_url, post_text,
