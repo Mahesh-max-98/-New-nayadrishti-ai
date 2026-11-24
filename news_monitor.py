@@ -447,8 +447,8 @@ def _save_short_source_headline_for_review(item_id, title, publisher, article_ur
     set_draft_status(item_id, "draft")
     remember(item_id, headline, publisher, article_url, "draft")
     if result is not None:
-        result["drafts_saved"] += 1
-        result["new_items"] += 1
+        result["drafts_saved"] = result.get("drafts_saved", 0) + 1
+        result["new_items"] = result.get("new_items", 0) + 1
         result["short_source_drafts"] = result.get("short_source_drafts", 0) + 1
     return True
 
