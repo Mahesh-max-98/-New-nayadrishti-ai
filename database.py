@@ -433,17 +433,22 @@ def count_non_ai_headline_posts_today():
 def begin_facebook_publication(item_id):
     """Durably reserve one Facebook attempt; never automatically repeat an uncertain attempt."""
     with connection() as db:
-        db.execute("""
+        inserted = db.execute("""
             INSERT INTO facebook_publications (item_id, status)
             VALUES (%s, 'publishing')
             ON CONFLICT(item_id) DO NOTHING
-        """, (item_id,))
+            RETURNING item_id
+        """, (item_id,)).fetchone()
         row = db.execute("""
             SELECT item_id, status, post_id, error_code, error_message, attempts,
                    started_at, finished_at, updated_at
             FROM facebook_publications WHERE item_id=%s FOR UPDATE
         """, (item_id,)).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result = dict(row)
+        result["reserved"] = bool(inserted)
+        return result
 
 
 def finish_facebook_publication(item_id, status, post_id=None, error_code=None, error_message=""):
