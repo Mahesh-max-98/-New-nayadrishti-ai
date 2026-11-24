@@ -207,7 +207,7 @@ def _normalize_story_url(url):
         return (url or "").strip().rstrip("/")
 
 
-def already_seen_story(title, url, similarity_threshold=0.90):
+def already_seen_story(title, url, similarity_threshold=0.88):
     """Catch duplicate stories across seen, saved-draft and pending records."""
     normalized_url = _normalize_story_url(url)
     normalized_title = _normalize_story_title(title)
