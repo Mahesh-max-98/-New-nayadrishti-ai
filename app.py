@@ -197,7 +197,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 <section class="panel" id="facebook-publishing-panel">
 <h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
-<p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on. Posts with uncertain results are not retried automatically; check your Page first.</p>
+
 <div id="facebook-status" class="small" role="status" aria-live="polite">Loading Facebook publishing status...</div>
 <div id="facebook-history" class="small" aria-live="polite">Loading publication history...</div>
 <button type="button" class="secondary" id="refresh-facebook-status" onclick="loadFacebookStatus()">Refresh Facebook status</button>
@@ -295,7 +295,7 @@ async function loadFacebookStatus(){
  const refreshButton=document.getElementById("refresh-facebook-status");
  if(!statusTarget||!historyTarget)return;
  if(refreshButton)refreshButton.disabled=true;
- statusTarget.textContent="Checking Facebook configuration...";
+ statusTarget.textContent="";
  historyTarget.textContent="Loading recent publishing results...";
  try{
   const response=await fetch("/facebook-status",{credentials:"same-origin",cache:"no-store",headers:{"Accept":"application/json"}});
