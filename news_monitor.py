@@ -12,7 +12,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status
+from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status
 from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text
 
@@ -288,6 +288,70 @@ def _publisher_from_google_title(title, fallback):
     return (publisher or fallback), headline
 
 
+def _publish_processed_story(item_id, title, publisher, article_url, article_text, post_text,
+                             published_timestamp=None, on_new_draft=None, result=None):
+    """Save a validated post and publish it when Facebook publishing is enabled."""
+    verification = assess_cross_source_coverage(title, publisher)
+    category = classify_story(title, article_text)[0]
+    is_breaking, breaking_reason = detect_breaking_news(
+        title, article_text, publisher, published_timestamp
+    )
+    if is_breaking and result is not None:
+        result["breaking_candidates"] += 1
+    save_draft(
+        item_id, title, publisher, article_url, post_text,
+        language="ne", verification=verification, category=category,
+        is_breaking=is_breaking, breaking_reason=breaking_reason,
+    )
+    if on_new_draft:
+        try:
+            on_new_draft({"title": title, "source": publisher})
+        except Exception:
+            log.exception("Could not publish live dashboard progress")
+
+    status = "draft"
+    if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
+        try:
+            published = publish_text(post_text)
+            if published.get("published"):
+                status = "published"
+                if result is not None:
+                    result["published"] += 1
+        except Exception as exc:
+            log.exception("Facebook text publishing failed for %s", publisher)
+            if result is not None:
+                result["errors"].append(
+                    f"{publisher} publish failed: {type(exc).__name__}: {str(exc)[:160]}"
+                )
+
+    set_draft_status(item_id, status)
+    remember(item_id, title, publisher, article_url, status)
+    complete_pending_story(item_id)
+    if result is not None:
+        result["drafts_saved"] += 1
+        result["new_items"] += 1
+
+
+def _provider_failure_pauses_scan(error_text, result):
+    if "GEMINI_BUDGET_PAUSED" in error_text:
+        result["ai_budget_paused"] = True
+        result["ai_budget_reason"] = error_text[:220]
+        return True
+    markers = (
+        "GEMINI_PROVIDER_PAUSED", "Gemini API error 429",
+        "Gemini API error 500", "Gemini API error 502",
+        "Gemini API error 503", "Gemini API error 504",
+        "GROQ_KEYS_EXHAUSTED", "Groq API error 429",
+        "Groq API error 500", "Groq API error 502",
+        "Groq API error 503", "Groq API error 504",
+    )
+    if any(marker in error_text for marker in markers) or "Groq API error 413" in error_text:
+        result["ai_provider_paused"] = True
+        result["ai_provider_pause_reason"] = error_text[:220]
+        return True
+    return False
+
+
 def check_feeds(on_new_draft=None):
     feeds = configured_feeds()
     result = {
@@ -295,7 +359,7 @@ def check_feeds(on_new_draft=None):
         "drafts_saved": 0, "published": 0, "already_seen": 0, "breaking_candidates": 0, "errors": [],
         "ai_requests": 0, "ai_writes": 0, "ai_limit_reached": False,
         "stale_skipped": 0, "undated_skipped": 0, "fresh_candidates": 0,
-        "feed_details": [],
+        "feed_details": [], "queued_for_retry": 0, "pending_processed": 0,
     }
     if not feeds:
         result["errors"].append("No RSS feeds configured.")
@@ -311,6 +375,43 @@ def check_feeds(on_new_draft=None):
     if ai_paused_for_scan:
         result["ai_budget_paused"] = True
         result["ai_budget_reason"] = "Daily NayaDrishti news-post ceiling reached."
+
+    # Retry durable queued stories before discovering new items. Failed stories
+    # remain in PostgreSQL for up to seven days by default, with progressively
+    # longer waits (15m, 30m, 1h, 2h, 4h, 8h, 12h, then 24h).
+    if not ai_paused_for_scan:
+        for queued in get_due_pending_stories(limit=ai_request_limit):
+            if result["ai_requests"] >= ai_request_limit:
+                result["ai_limit_reached"] = True
+                break
+            result["ai_requests"] += 1
+            try:
+                article_text = clean_text(queued.get("article_text"), 7000)
+                if len(article_text) < 80:
+                    raise ValueError("Queued story no longer has enough source text.")
+                post_text = write_summary(
+                    title=queued["title"], description=article_text,
+                    source_name=queued["source"], article_url=queued["url"],
+                )
+                result["ai_writes"] += 1
+                published_at = queued.get("published_at")
+                published_timestamp = published_at.timestamp() if published_at else None
+                _publish_processed_story(
+                    queued["item_id"], queued["title"], queued["source"],
+                    queued["url"], article_text, post_text,
+                    published_timestamp=published_timestamp,
+                    on_new_draft=on_new_draft, result=result,
+                )
+                result["pending_processed"] += 1
+            except Exception as exc:
+                retry_pending_story(queued["item_id"], str(exc))
+                result["errors"].append(
+                    f"{queued.get('source', 'Queued story')} retry failed: {type(exc).__name__}: {str(exc)[:140]}"
+                )
+                log.warning("Queued story retry failed for %s: %s", queued.get("title", "")[:100], exc)
+                if _provider_failure_pauses_scan(str(exc), result):
+                    ai_paused_for_scan = True
+                    break
 
     # Check higher-priority publisher feeds first; retain every configured feed.
     feeds.sort(key=lambda feed: source_priority(feed[0]), reverse=True)
@@ -361,20 +462,32 @@ def check_feeds(on_new_draft=None):
                 if not title:
                     continue
 
-                if result["ai_requests"] >= ai_request_limit or ai_paused_for_scan:
-                    if result["ai_requests"] >= ai_request_limit:
-                        result["ai_limit_reached"] = True
-                    continue
-
                 item_id = hashlib.sha256((publisher.lower() + "|" + article_url).encode("utf-8")).hexdigest()
                 if already_seen(item_id) or already_seen_title(title) or already_seen_story(title, article_url):
                     detail["already_seen"] += 1
                     result["already_seen"] += 1
                     continue
 
+                # Save the source material before attempting AI writing. If both
+                # providers are down, this story survives feed freshness windows.
                 article_text = fetch_article_text(article_url, rss_description)
                 if len(article_text) < 80:
                     log.info("Skipping story with too little source text: %s", title)
+                    continue
+                timestamp = _entry_timestamp(entry)
+                published_at = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp else None
+                enqueue_pending_story(
+                    item_id, title, publisher, article_url, article_text,
+                    published_at=published_at,
+                )
+                detail["queued_items"] = detail.get("queued_items", 0) + 1
+                if result["queued_for_retry"] < 30:
+                    result["queued_for_retry"] += 1
+                if (result["ai_requests"] >= ai_request_limit or ai_paused_for_scan):
+                    if result["ai_requests"] >= ai_request_limit:
+                        result["ai_limit_reached"] = True
+                    if detail["queued_items"] >= per_feed_limit or result["queued_for_retry"] >= 30:
+                        break
                     continue
 
                 result["ai_requests"] += 1
@@ -393,64 +506,16 @@ def check_feeds(on_new_draft=None):
                     )
                     log.warning("AI summary failed for %s (%s): %s", publisher, title[:100], exc)
                     error_text = str(exc)
-                    if "GEMINI_BUDGET_PAUSED" in error_text:
+                    retry_pending_story(item_id, error_text)
+                    if _provider_failure_pauses_scan(error_text, result):
                         ai_paused_for_scan = True
-                        result["ai_budget_paused"] = True
-                        result["ai_budget_reason"] = error_text[:220]
-                    elif any(marker in error_text for marker in (
-                        "GEMINI_PROVIDER_PAUSED",
-                        "Gemini API error 429", "Gemini API error 500",
-                        "Gemini API error 502", "Gemini API error 503",
-                        "Gemini API error 504", "GROQ_KEYS_EXHAUSTED",
-                        "Groq API error 429", "Groq API error 500",
-                        "Groq API error 502", "Groq API error 503",
-                        "Groq API error 504",
-                    )):
-                        # One provider-wide failure is enough for this scan.
-                        # Keep remaining stories unseen for a later scheduled retry.
-                        ai_paused_for_scan = True
-                        result["ai_provider_paused"] = True
-                        result["ai_provider_pause_reason"] = error_text[:220]
-                    elif "Groq API error 413" in error_text:
-                        ai_paused_for_scan = True
-                        result["ai_provider_paused"] = True
                     continue
 
-                verification = assess_cross_source_coverage(title, publisher)
-                category = classify_story(title, article_text)[0]
-                is_breaking, breaking_reason = detect_breaking_news(
-                    title, article_text, publisher, _entry_timestamp(entry)
+                _publish_processed_story(
+                    item_id, title, publisher, article_url, article_text, post_text,
+                    published_timestamp=timestamp,
+                    on_new_draft=on_new_draft, result=result,
                 )
-                if is_breaking:
-                    result["breaking_candidates"] += 1
-                save_draft(
-                    item_id, title, publisher, article_url, post_text,
-                    language="ne", verification=verification, category=category,
-                    is_breaking=is_breaking, breaking_reason=breaking_reason,
-                )
-                result["drafts_saved"] += 1
-                if on_new_draft:
-                    try:
-                        on_new_draft({"title": title, "source": publisher})
-                    except Exception:
-                        log.exception("Could not publish live dashboard progress")
-
-                status = "draft"
-                if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
-                    try:
-                        published = publish_text(post_text)
-                        if published.get("published"):
-                            status = "published"
-                            result["published"] += 1
-                    except Exception as exc:
-                        log.exception("Facebook text publishing failed for %s", publisher)
-                        result["errors"].append(
-                            f"{publisher} publish failed: {type(exc).__name__}: {str(exc)[:160]}"
-                        )
-
-                set_draft_status(item_id, status)
-                remember(item_id, title, publisher, article_url, status)
-                result["new_items"] += 1
                 detail["new_items"] += 1
                 if detail["new_items"] >= per_feed_limit:
                     break
@@ -461,6 +526,7 @@ def check_feeds(on_new_draft=None):
         finally:
             result["feed_details"].append(detail)
 
+    result["pending_queue"] = get_pending_queue_status()
     result["groq_usage"] = get_groq_usage_status()
     result["facebook_publishing_enabled"] = (
         os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true"
