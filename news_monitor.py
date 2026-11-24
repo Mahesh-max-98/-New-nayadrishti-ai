@@ -706,7 +706,17 @@ def check_feeds(on_new_draft=None, on_progress=None):
             detail["entries_found"] = len(entries)
             result["entries_found_total"] += len(entries)
 
-            for entry in entries[:60]:
+            for story_index, entry in enumerate(entries[:60], start=1):
+                if on_progress:
+                    try:
+                        on_progress({
+                            "phase": "checking_story", "feeds_processed": feed_index - 1,
+                            "feeds_total": len(feeds), "source": feed_name,
+                            "story_index": story_index, "story_total": min(len(entries), 60),
+                            "drafts_saved": result["drafts_saved"],
+                        })
+                    except Exception:
+                        log.exception("Could not update story-level news progress")
                 if detail["new_items"] >= per_feed_limit or detail.get("queued_items", 0) >= per_feed_limit:
                     break
                 raw_title = clean_text(entry.get("title"), 300)
@@ -787,6 +797,7 @@ def check_feeds(on_new_draft=None, on_progress=None):
                     if posted_or_saved:
                         detail["new_items"] += 1
                         detail["short_source_drafts"] = detail.get("short_source_drafts", 0) + 1
+                        result["short_source_drafts"] += 1
                     else:
                         detail["short_source_skipped"] += 1
                     continue
