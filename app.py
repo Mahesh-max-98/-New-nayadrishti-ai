@@ -12,8 +12,10 @@ from database import get_drafts, init_db, set_draft_status, get_pending_queue_st
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
+from legal_pages import register_legal_routes
 
 app = Flask(__name__)
+register_legal_routes(app)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
 if not app.secret_key:
     raise RuntimeError("FLASK_SECRET_KEY is required. Set a long, random secret in Render environment variables.")
