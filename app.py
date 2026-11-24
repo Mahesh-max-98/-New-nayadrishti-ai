@@ -8,9 +8,10 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status
+from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
+from facebook_publisher import facebook_configuration_status
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
@@ -155,7 +156,8 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div></details>
 <section class="panel"><h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
-<p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on.</p></section>
+<p class="small">Keep publishing OFF while testing. Review several drafts and their original sources before turning it on. Posts with uncertain results are not retried automatically; check your Page first.</p>
+<div id="facebook-status" class="small">Loading Facebook publishing status...</div></section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
 <p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
 <form class="filters" method="get" action="/">
@@ -180,6 +182,19 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
 {% if logged_in %}<script>
+async function loadFacebookStatus(){
+ const target=document.getElementById("facebook-status");if(!target)return;
+ try{
+  const response=await fetch("/facebook-status",{credentials:"same-origin",cache:"no-store"});
+  if(!response.ok)throw new Error("Facebook status unavailable");
+  const data=await response.json(),c=data.history.counts||{};
+  target.textContent="Configuration: "+(data.config.ready?"READY":data.config.enabled?"INCOMPLETE":"DISABLED")+
+   " · Page ID "+(data.config.page_id_configured?"set":"missing")+
+   " · Page token "+(data.config.page_token_configured?"set":"missing")+
+   " · History: "+(c.published||0)+" published, "+(c.failed||0)+" failed, "+
+   (c.unknown||0)+" uncertain, "+(c.publishing||0)+" in progress.";
+ }catch(error){target.textContent="Could not load Facebook publishing status."}
+}
 async function loadGroqUsage(){
  const target=document.getElementById("groq-usage");if(!target)return;
  try{
@@ -261,7 +276,7 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
- loadGroqUsage();setInterval(loadGroqUsage,30000);
+ loadGroqUsage();loadFacebookStatus();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
  const el=document.getElementById('monitoring-status');
  let seenDrafts=0;
  try{
@@ -365,6 +380,16 @@ def groq_usage():
     status = get_groq_usage_status()
     status["pending_queue"] = get_pending_queue_status()
     return jsonify(status)
+
+
+@app.get("/facebook-status")
+@login_required
+def facebook_status():
+    """Show credential presence and durable publication history, never secrets."""
+    return jsonify(
+        config=facebook_configuration_status(),
+        history=get_facebook_publication_status(limit=20),
+    )
 
 
 @app.get("/health")
