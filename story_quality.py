@@ -26,7 +26,7 @@ def has_unsupported_numbers(generated_text, source_text):
     return not numeric_facts(generated_text).issubset(numeric_facts(source_text))
 
 
-def similar_story_titles(first, second, similarity_threshold=0.90):
+def similar_story_titles(first, second, similarity_threshold=0.88):
     """Conservative near-duplicate test; conflicting numeric facts stay separate."""
     a = normalize_story_title(first)
     b = normalize_story_title(second)
@@ -40,4 +40,4 @@ def similar_story_titles(first, second, similarity_threshold=0.90):
     if len(tokens_a) < 4 or len(tokens_b) < 4:
         return False
     overlap = len(tokens_a & tokens_b) / max(1, len(tokens_a | tokens_b))
-    return overlap >= 0.84
+    return overlap >= 0.80
