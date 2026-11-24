@@ -187,6 +187,6 @@ def finish_groq_request(reservation, actual_tokens=0, post_created=False, error=
             WHERE usage_date=%s
         """, (
             reserved, charged, 1 if post_created else 0,
-            paused_until, paused_until,
+            paused_until,
             error[:300], error[:300], error[:300], day,
         ))
