@@ -14,6 +14,8 @@ from urllib.parse import urlencode, urlsplit
 import feedparser
 import requests
 
+from source_health import classify_feed_health
+
 from ai_writer import write_summary
 from database import begin_facebook_publication, finish_facebook_publication, already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today, get_facebook_publishing_control, set_facebook_publishing_blocked, record_news_source_health
 from groq_budget import get_groq_usage_status
@@ -716,8 +718,8 @@ def check_feeds(on_new_draft=None, on_progress=None):
         try:
             parsed = feed_futures[(feed_name, feed_url)].result()
             feed_http_status = parsed.get("http_status")
-            feed_health_status = "warning" if parsed.bozo else "healthy"
-            if parsed.bozo:
+            feed_health_status = classify_feed_health(parsed=parsed)
+            if feed_health_status == "warning":
                 feed_health_error = "Feed parsed with a format warning; entries were still available."
             detail["http_status"] = feed_http_status
             detail["health_status"] = feed_health_status
