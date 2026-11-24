@@ -496,7 +496,8 @@ def get_facebook_publishing_control():
 
 
 def set_facebook_publishing_blocked(blocked, reason=""):
-    """Pause publishing after auth errors; clear only after a successful connection check."""    with connection() as db:
+    """Pause publishing after auth errors; clear only after a successful connection check."""
+    with connection() as db:
         db.execute("""
             INSERT INTO facebook_publishing_control (id, auth_blocked, reason)
             VALUES (1, %s, %s)
