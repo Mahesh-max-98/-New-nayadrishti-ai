@@ -728,7 +728,7 @@ def check_feeds(on_new_draft=None, on_progress=None):
                 # for AI auto-publishing because their freshness cannot be verified.
                 if undated:
                     undated_text = rss_description
-                    if len(undated_text) < 180 and article_fetches < article_fetch_limit:
+                    if len(undated_text) < 350 and article_fetches < article_fetch_limit:
                         article_fetches += 1
                         result["article_fetches"] = article_fetches
                         undated_text = fetch_article_text(article_url, rss_description)
