@@ -632,3 +632,45 @@ def get_news_analytics():
         "sources": dict(sources or {}),
         "categories": [dict(row) for row in categories],
     }
+
+def get_news_analytics():
+    """Return privacy-safe aggregate dashboard metrics without exposing story content."""
+    with connection() as db:
+        totals = db.execute("""
+            SELECT
+                COUNT(*)::INTEGER AS total_drafts,
+                COUNT(*) FILTER (WHERE status='draft')::INTEGER AS waiting_review,
+                COUNT(*) FILTER (WHERE status='approved')::INTEGER AS reviewed,
+                COUNT(*) FILTER (WHERE status='rejected')::INTEGER AS dismissed,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::INTEGER AS created_last_7_days
+            FROM drafts
+        """).fetchone()
+        seen = db.execute("SELECT COUNT(*)::INTEGER AS total FROM seen_items").fetchone()
+        published = db.execute(
+            "SELECT COUNT(*)::INTEGER AS total FROM facebook_publications WHERE status='published'"
+        ).fetchone()
+        sources = db.execute("""
+            SELECT
+                COUNT(*)::INTEGER AS total,
+                COUNT(*) FILTER (WHERE status='healthy')::INTEGER AS healthy,
+                COUNT(*) FILTER (WHERE status='warning')::INTEGER AS warning,
+                COUNT(*) FILTER (WHERE status='error')::INTEGER AS error
+            FROM news_source_health
+        """).fetchone()
+        categories = db.execute("""
+            SELECT COALESCE(NULLIF(category, ''), 'अन्य') AS category,
+                   COUNT(*)::INTEGER AS count
+            FROM drafts
+            WHERE status='draft'
+            GROUP BY COALESCE(NULLIF(category, ''), 'अन्य')
+            ORDER BY count DESC, category ASC
+            LIMIT 8
+        """).fetchall()
+
+    return {
+        "drafts": dict(totals or {}),
+        "discovered_items": int((seen or {}).get("total", 0)),
+        "facebook_published": int((published or {}).get("total", 0)),
+        "sources": dict(sources or {}),
+        "categories": [dict(row) for row in categories],
+    }
