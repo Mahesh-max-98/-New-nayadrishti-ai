@@ -294,7 +294,7 @@ def _publish_facebook_tracked(item_id, post_text):
     reservation = begin_facebook_publication(item_id)
     if not reservation:
         return {"status": "unknown", "reason": "Could not confirm the durable publishing reservation."}
-    if reservation["status"] != "publishing" or int(reservation.get("attempts") or 1) > 1:
+    if not reservation.get("reserved") or reservation["status"] != "publishing":
         return {"status": reservation["status"], "reason": "A Facebook attempt already exists; duplicate publishing was blocked."}
     try:
         outcome = publish_text(post_text)
