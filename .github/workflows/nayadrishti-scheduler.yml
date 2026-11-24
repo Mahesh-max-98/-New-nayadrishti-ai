@@ -21,7 +21,8 @@ jobs:
         env:
           NAYADRISHTI_URL: https://nayadrishti-ai.onrender.com
           SCHEDULER_SHARED_SECRET: ${{ secrets.SCHEDULER_SHARED_SECRET }}
-        run: python - <<'PY'
+        run: |
+          python - <<'PY'
           import os
           import sys
           from datetime import datetime
