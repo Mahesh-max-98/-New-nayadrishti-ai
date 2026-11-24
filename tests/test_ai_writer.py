@@ -48,8 +48,25 @@ class PrepareNewsPostTests(unittest.TestCase):
 
     def test_rejects_too_few_useful_lines(self):
         generated = "सरकारले नयाँ नीति सार्वजनिक गरेको छ।\nनयाँ नीति लागू हुने भएको छ।"
-        with self.assertRaisesRegex(RuntimeError, "3 to 6"):
+        with self.assertRaisesRegex(RuntimeError, "3 to 10"):
             prepare_news_post(generated)
+
+
+    def test_accepts_ten_useful_lines(self):
+        generated = "\\n".join([
+            "सरकारले नयाँ शिक्षा नीति सार्वजनिक गरेको छ।",
+            "नयाँ नीतिमा विद्यालय शिक्षासम्बन्धी व्यवस्था परिवर्तन गरिएको छ।",
+            "शिक्षा मन्त्रालयले आवश्यक तयारी अघि बढाएको जनाएको छ।",
+            "विद्यालय तहका विद्यार्थीलाई नयाँ व्यवस्था लागू हुनेछ।",
+            "स्थानीय तहसँग समन्वय गरेर कार्यक्रम अघि बढाइनेछ।",
+            "सम्बन्धित निकायले कार्यान्वयनको कार्ययोजना तयार पारेको छ।",
+            "शिक्षक तथा विद्यालय व्यवस्थापनसँग छलफल गरिनेछ।",
+            "नीति कार्यान्वयनका लागि आवश्यक स्रोत जुटाइनेछ।",
+            "कार्यक्रमबारे थप जानकारी सार्वजनिक गरिने मन्त्रालयले जनाएको छ।",
+            "नयाँ व्यवस्थाले शैक्षिक सेवा सुधार गर्ने लक्ष्य राखेको छ।",
+        ])
+        result = prepare_news_post(generated)
+        self.assertEqual(len(result.splitlines()), 10)
 
     def test_removes_headline_label_and_markdown_formatting(self):
         generated = (
