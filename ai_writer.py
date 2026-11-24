@@ -251,11 +251,10 @@ def prepare_news_post(content, source_name=""):
 
 
 def write_summary(title, description, source_name, article_url):
-    """Write a factual Nepali news post and validate it before saving."""
-    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-    if not _configured_groq_keys():
-        raise RuntimeError("No Groq API key is configured. Set GROQ_API_KEY.")
+    """Write a factual Nepali news post with Groq primary and Gemini fallback."""
+    from ai_fallback import finish_gemini_request, generate_with_gemini, reserve_gemini_request
 
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
     article_text = _bounded_article_text(description)
     if len(article_text) < 80:
         raise ValueError(
@@ -280,9 +279,27 @@ def write_summary(title, description, source_name, article_url):
 {article_text}
 <<<END_UNTRUSTED_ARTICLE_TEXT>>>
 """
+
+    def use_gemini(reason):
+        reservation = reserve_gemini_request()
+        try:
+            generated = generate_with_gemini(prompt)
+            prepared = prepare_news_post(generated, source_name)
+            finish_gemini_request(reservation, post_created=True)
+            return prepared
+        except Exception as fallback_error:
+            finish_gemini_request(reservation, post_created=False, error=str(fallback_error))
+            raise RuntimeError(
+                f"Primary Groq unavailable ({str(reason)[:120]}); Gemini fallback failed: {str(fallback_error)[:220]}"
+            ) from fallback_error
+
+    if not _configured_groq_keys():
+        return use_gemini("No Groq API key is configured")
+
     reservation = reserve_groq_request(estimate_request_tokens(prompt))
     if not reservation.get("allowed"):
-        raise RuntimeError("GROQ_BUDGET_PAUSED: " + reservation.get("reason", "Daily safety budget reached."))
+        reason = reservation.get("reason", "Groq daily safety budget reached.")
+        return use_gemini(reason)
 
     actual_tokens = 0
     try:
@@ -327,6 +344,8 @@ def write_summary(title, description, source_name, article_url):
                 pause_seconds=pause_seconds,
             )
             reservation = None
+            if response.status_code in (401, 403, 429, 500, 502, 503, 504):
+                return use_gemini(f"Groq API error {response.status_code}: {detail}")
             raise RuntimeError(f"Groq API error {response.status_code}: {detail}")
 
         data = response.json()
@@ -354,11 +373,8 @@ def write_summary(title, description, source_name, article_url):
         return prepared
     except Exception as exc:
         if reservation is not None:
-            pause_seconds = 0
-            if "Groq API error 429" in str(exc):
-                pause_seconds = 60
             finish_groq_request(
                 reservation, actual_tokens=actual_tokens, post_created=False,
-                error=str(exc), pause_seconds=pause_seconds,
+                error=str(exc), pause_seconds=0,
             )
         raise
