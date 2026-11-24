@@ -13,6 +13,7 @@ from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
 from legal_pages import register_legal_routes
+from review_gate import review_checklist_complete
 
 app = Flask(__name__)
 register_legal_routes(app)
@@ -199,7 +200,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 {{ d.verification_note }}</p>
 {% if d.verification_sources %}<p class="small">Compared publishers: {{ d.verification_sources }}</p>{% endif %}
 {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Read original report</a>{% endif %}
-<div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
+<div class="actions"><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="approved"><label class="small"><input type="checkbox" name="read_original" value="yes" required style="width:auto"> मैले मूल समाचार खोलेर पढेको छु</label><label class="small"><input type="checkbox" name="checked_key_facts" value="yes" required style="width:auto"> नाम, स्थान र मुख्य तथ्य जाँचेको छु</label><label class="small"><input type="checkbox" name="summary_matches_source" value="yes" required style="width:auto"> पोस्ट मूल समाचारसँग मेल खान्छ</label><button type="submit">Approve · reviewed</button></form><form method="post" action="/draft/{{ d.item_id }}/status"><input type="hidden" name="status" value="rejected"><button class="secondary" type="submit">Dismiss</button></form></div>
 </article>
 {% else %}<div class="panel">No drafts waiting. Run a news check or confirm that your RSS sources are configured.</div>{% endfor %}
 </section>{% endif %}</main>
@@ -450,6 +451,11 @@ def update_draft_status(item_id):
     status = (request.form.get("status") or "").strip().lower()
     if status not in {"approved", "rejected"}:
         return redirect(url_for("home", notice="Invalid review action."))
+    if status == "approved" and not review_checklist_complete(request.form):
+        return redirect(url_for(
+            "home",
+            notice="Review checklist incomplete. Open the original report and confirm all three checks before marking this draft reviewed."
+        ))
     set_draft_status(item_id, status)
     message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
     return redirect(url_for("home", notice=message))
