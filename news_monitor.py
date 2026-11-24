@@ -393,8 +393,7 @@ def _build_non_ai_headline_post(title, publisher):
     source = clean_text(publisher, 100)
     return (
         "📰 समाचार अपडेट\n\n"
-        f"{headline}\n\n"
-        f"स्रोत: {source}"
+        f"{headline}"
     )
 
 
