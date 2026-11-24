@@ -8,7 +8,7 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked
+from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked, get_news_source_health
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
 from facebook_publisher import facebook_configuration_status, check_facebook_connection
@@ -170,7 +170,7 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <div id="monitoring-status" class="status">Loading latest check status...</div>
 <section class="panel"><h3>Groq usage protection</h3><div id="groq-usage" class="small">Loading daily usage...</div><p class="small">Safety budgets are tracked using Nepal time. If both AI providers are unavailable, eligible stories are saved in a persistent recovery queue and retried with longer intervals for up to 7 days. Stories older than 72 hours are not auto-published, to avoid posting stale news. RSS feed checks continue. This cannot override provider quotas.</p></section>
 <button id="check" onclick="runCheck()">Check news now</button><p class="small">Automatic checks: every 5 minutes, 5:00 AM–10:55 PM Nepal time, while the service is awake. The dashboard refreshes when a new draft is saved.</p>
-<div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div></details>
+<div id="result" class="status" aria-live="polite">Ready. Press the button to collect news.</div></section>\n<details class="panel" id="feed-health"><summary><strong>News source health</strong> <span class="small">— details from the latest check</span></summary><div id="feed-health-list" class="small" style="padding-top:12px">Run a news check to see which sources are working.</div><h4>Saved source history</h4><div id="persistent-feed-health" class="small">Loading saved source history...</div></details>
 <section class="panel" id="facebook-publishing-panel">
 <h2>Facebook publishing</h2>
 <p>Auto-publishing: <strong>{{ 'ON' if publishing else 'OFF' }}</strong></p>
@@ -295,6 +295,29 @@ function renderFeedHealth(data){
   target.append(row);
  });
 }
+async function loadPersistentFeedHealth(){
+ const target=document.getElementById('persistent-feed-health');if(!target)return;
+ try{
+  const response=await fetch('/source-health',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw new Error('Source history unavailable');
+  const data=await response.json();const sources=Array.isArray(data.sources)?data.sources:[];
+  target.replaceChildren();
+  if(!sources.length){target.textContent='No saved source history yet. Run a news check.';return;}
+  sources.forEach(source=>{
+   const row=document.createElement('div');row.className='feed-row';
+   const left=document.createElement('div');
+   const name=document.createElement('div');name.className='feed-name';name.textContent=source.source_name;
+   const meta=document.createElement('div');meta.className='feed-meta';
+   meta.textContent='Consecutive failed checks: '+source.consecutive_failures+' · Last HTTP: '+(source.last_http_status||'not recorded')+' · Entries last scan: '+source.last_entries_found+' · Last duration: '+source.last_duration_ms+' ms';
+   left.append(name,meta);
+   const status=document.createElement('strong');
+   status.className=source.status==='error'?'feed-error':source.status==='warning'?'danger':'feed-ok';
+   status.textContent=source.status==='error'?'ERROR':source.status==='warning'?'WARNING':'HEALTHY';
+   row.append(left,status);target.append(row);
+   if(source.last_error){const err=document.createElement('div');err.className='feed-error-text';err.textContent=source.last_error;target.append(err);}
+  });
+ }catch(error){target.textContent='Could not load saved source health.';}
+}
 async function runCheck(){
  const button=document.getElementById('check'),out=document.getElementById('result');
  if(button.disabled)return;
@@ -324,7 +347,7 @@ async function runCheck(){
    }
    if(state.finished){
     const data=state.result||{};
-    renderFeedHealth(data);loadGroqUsage();
+    renderFeedHealth(data);loadPersistentFeedHealth();loadGroqUsage();
     const status=document.getElementById('monitoring-status');
     status.textContent='Last check completed · '+(state.trigger||'unknown')+' run';
     if(state.error)out.textContent='Check failed: '+state.error;
@@ -359,7 +382,7 @@ async function runCheck(){
  }catch(error){out.textContent='News check: '+error.message;button.disabled=false;button.textContent='Check news now';}
 }
 window.addEventListener('load',async()=>{
- loadGroqUsage();loadFacebookStatus();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
+ loadGroqUsage();loadFacebookStatus();loadPersistentFeedHealth();setInterval(loadGroqUsage,30000);setInterval(loadFacebookStatus,30000);
  const el=document.getElementById('monitoring-status');
  let seenDrafts=0;
  try{
@@ -459,6 +482,13 @@ def update_draft_status(item_id):
     set_draft_status(item_id, status)
     message = "Post marked as reviewed. It was not published." if status == "approved" else "Draft dismissed."
     return redirect(url_for("home", notice=message))
+
+
+@app.get("/source-health")
+@login_required
+def source_health():
+    """Return persistent health history for configured news feeds."""
+    return jsonify(sources=get_news_source_health(limit=100))
 
 
 @app.get("/groq-usage")
