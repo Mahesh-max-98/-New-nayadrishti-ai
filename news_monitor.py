@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from urllib.parse import urlencode, urlsplit
@@ -387,14 +388,43 @@ def _non_ai_headline_is_eligible(title, publisher, article_url, published_timest
     return not is_breaking
 
 
-def _build_non_ai_headline_post(title, publisher):
-    """Create a clean publisher-attributed headline notice without a raw URL."""
+def _build_non_ai_summary_post(title, article_text):
+    """Build a 3-6 line extractive Nepali post using source text only; never invent facts."""
     headline = clean_text(title, 260)
-    source = clean_text(publisher, 100)
-    return (
-        "📰 समाचार अपडेट\n\n"
-        f"{headline}"
-    )
+    source_text = clean_text(article_text, 7000)
+    if not headline or len(source_text) < 100:
+        return None
+
+    # Keep complete source sentences. This is deliberately extractive: no AI,
+    # inference, added context, or paraphrased claims are used during outages.
+    candidates = re.split(r"(?<=[।!?])\s+|(?<=[.!?])\s+(?=[\u0900-\u097F])", source_text)
+    body_lines = []
+    for candidate in candidates:
+        line = clean_text(candidate, 420).strip(" -|—–")
+        if len(line) < 25:
+            continue
+        if len(re.findall(r"[\u0900-\u097F]", line)) < 12:
+            continue
+        if re.search(r"https?://|www\.|(?:स्रोत|श्रोत|प्रकाशित समय|अपडेट समय)", line, re.IGNORECASE):
+            continue
+        if SequenceMatcher(None, headline.casefold(), line.casefold()).ratio() >= 0.82:
+            continue
+        if line.casefold() not in [existing.casefold() for existing in body_lines]:
+            body_lines.append(line)
+        if len(body_lines) == 5:
+            break
+
+    if len(body_lines) < 2:
+        return None
+    body_lines[-1] = body_lines[-1].rstrip(" ।.!?") + " 📰"
+    return "📰 समाचार अपडेट\n\n" + headline + "\n" + "\n".join(body_lines)
+
+
+
+def _build_non_ai_headline_post(title, publisher=""):
+    """Create a headline-only review draft when the feed has no readable article text."""
+    headline = clean_text(title, 260)
+    return "📰 समाचार अपडेट\n\n" + headline if headline else ""
 
 
 def _save_short_source_headline_for_review(item_id, title, publisher, article_url,
@@ -429,9 +459,9 @@ def _save_short_source_headline_for_review(item_id, title, publisher, article_ur
     return True
 
 
-def _publish_non_ai_headline(item_id, title, publisher, article_url, published_timestamp=None,
-                             on_new_draft=None, result=None):
-    """Save/publish a clearly labelled headline-only notice during AI provider outages."""
+def _publish_non_ai_headline(item_id, title, publisher, article_url, article_text="",
+                             published_timestamp=None, on_new_draft=None, result=None):
+    """Save/publish a source-only multi-line summary during AI provider outages."""
     if os.getenv("ENABLE_NON_AI_HEADLINE_PUBLISHING", "true").strip().lower() != "true":
         return False
     if not _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp):
@@ -446,7 +476,11 @@ def _publish_non_ai_headline(item_id, title, publisher, article_url, published_t
             result["non_ai_fallback_skipped"] += 1
         return False
 
-    post_text = _build_non_ai_headline_post(title, publisher)
+    post_text = _build_non_ai_summary_post(title, article_text)
+    if not post_text:
+        if result is not None:
+            result["non_ai_fallback_skipped"] += 1
+        return False
     verification = assess_cross_source_coverage(title, publisher)
     save_draft(
         item_id, title, publisher, article_url, post_text,
@@ -538,6 +572,7 @@ def check_feeds(on_new_draft=None):
                 published_timestamp = published_at.timestamp() if published_at else None
                 used_fallback = _publish_non_ai_headline(
                     queued["item_id"], queued["title"], queued["source"], queued["url"],
+                    article_text=queued.get("article_text", ""),
                     published_timestamp=published_timestamp, on_new_draft=on_new_draft, result=result,
                 )
                 if used_fallback:
@@ -594,6 +629,7 @@ def check_feeds(on_new_draft=None):
                     published_timestamp = published_at.timestamp() if published_at else None
                     if _publish_non_ai_headline(
                         queued["item_id"], queued["title"], queued["source"], queued["url"],
+                        article_text=queued.get("article_text", ""),
                         published_timestamp=published_timestamp, on_new_draft=on_new_draft, result=result,
                     ):
                         result["pending_processed"] += 1
@@ -682,7 +718,7 @@ def check_feeds(on_new_draft=None):
                         result["ai_limit_reached"] = True
                     if provider_fallback_active:
                         if _publish_non_ai_headline(
-                            item_id, title, publisher, article_url,
+                            item_id, title, publisher, article_url, article_text=article_text,
                             published_timestamp=timestamp, on_new_draft=on_new_draft, result=result,
                         ):
                             detail["new_items"] += 1
@@ -713,7 +749,7 @@ def check_feeds(on_new_draft=None):
                         ai_paused_for_scan = True
                         provider_fallback_active = True
                         if _publish_non_ai_headline(
-                            item_id, title, publisher, article_url,
+                            item_id, title, publisher, article_url, article_text=article_text,
                             published_timestamp=timestamp, on_new_draft=on_new_draft, result=result,
                         ):
                             detail["new_items"] += 1
