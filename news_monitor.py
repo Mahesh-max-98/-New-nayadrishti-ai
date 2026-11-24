@@ -341,10 +341,14 @@ def _provider_failure_pauses_scan(error_text, result):
         result["ai_budget_reason"] = error_text[:220]
         return True
     markers = (
-        "GEMINI_PROVIDER_PAUSED", "Gemini API error 429",
+        "GEMINI_PROVIDER_PAUSED", "Gemini API error 400",
+        "Gemini API error 401", "Gemini API error 403",
+        "Gemini API error 404", "Gemini API error 429",
         "Gemini API error 500", "Gemini API error 502",
         "Gemini API error 503", "Gemini API error 504",
-        "GROQ_KEYS_EXHAUSTED", "Groq API error 429",
+        "GROQ_KEYS_EXHAUSTED", "Groq API error 400",
+        "Groq API error 401", "Groq API error 403",
+        "Groq API error 404", "Groq API error 429",
         "Groq API error 500", "Groq API error 502",
         "Groq API error 503", "Groq API error 504",
     )
