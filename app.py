@@ -188,7 +188,7 @@ async function loadFacebookStatus(){
   const response=await fetch("/facebook-status",{credentials:"same-origin",cache:"no-store"});
   if(!response.ok)throw new Error("Facebook status unavailable");
   const data=await response.json(),c=data.history.counts||{};
-  target.textContent="Configuration: "+(data.config.ready?"READY":data.config.enabled?"INCOMPLETE":"DISABLED")+
+  target.textContent="Configuration: "+(data.config.enabled?(data.config.credentials_present?"CONFIGURED · permissions not verified":"INCOMPLETE"):"DISABLED")+
    " · Page ID "+(data.config.page_id_configured?"set":"missing")+
    " · Page token "+(data.config.page_token_configured?"set":"missing")+
    " · History: "+(c.published||0)+" published, "+(c.failed||0)+" failed, "+
