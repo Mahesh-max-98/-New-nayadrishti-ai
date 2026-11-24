@@ -303,16 +303,16 @@ class GeminiFallbackTests(unittest.TestCase):
             "सम्बन्धित निकायले कार्यान्वयन प्रक्रिया अघि बढाउने जनाएको छ।"
         )
         reservation = {"usage_date": "2026-11-24"}
-        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-gemini-key"}, clear=True), \\
-             patch("ai_fallback.reserve_gemini_request", return_value=reservation), \\
-             patch("ai_fallback.generate_with_gemini", return_value=valid) as generate, \\
-             patch("ai_fallback.finish_gemini_request") as finish:
-            result = write_summary(
-                "सरकारले नयाँ नीति सार्वजनिक गर्‍यो",
-                "यो समाचारको पर्याप्त विवरण हो। " * 20,
-                "Onlinekhabar",
-                "https://example.com/news",
-            )
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-gemini-key"}, clear=True):
+            with patch("ai_fallback.reserve_gemini_request", return_value=reservation):
+                with patch("ai_fallback.generate_with_gemini", return_value=valid) as generate:
+                    with patch("ai_fallback.finish_gemini_request") as finish:
+                        result = write_summary(
+                            "सरकारले नयाँ नीति सार्वजनिक गर्‍यो",
+                            "यो समाचारको पर्याप्त विवरण हो। " * 20,
+                            "Onlinekhabar",
+                            "https://example.com/news",
+                        )
         self.assertTrue(result.endswith("📰"))
         generate.assert_called_once()
         finish.assert_called_once_with(reservation, post_created=True)
