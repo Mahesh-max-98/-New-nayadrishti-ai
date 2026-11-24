@@ -29,7 +29,7 @@ _feed_execution_lock = threading.Lock()
 _check_status = {
     "running": False, "finished": False, "result": None, "error": None,
     "started_at": None, "finished_at": None, "trigger": None,
-    "new_drafts": 0, "last_draft": None,
+    "new_drafts": 0, "last_draft": None, "progress": None,
 }
 
 
@@ -41,6 +41,14 @@ def _record_new_draft(draft):
             "title": str(draft.get("title", ""))[:180],
             "source": str(draft.get("source", ""))[:100],
         }
+        if isinstance(_check_status.get("progress"), dict):
+            _check_status["progress"]["drafts_saved"] = _check_status["new_drafts"]
+
+
+def _record_check_progress(progress):
+    """Expose per-feed progress to the dashboard while a scan is running."""
+    with _check_lock:
+        _check_status["progress"] = dict(progress or {})
 
 
 def _run_check(trigger, lock_acquired=False):
@@ -58,6 +66,7 @@ def _run_check(trigger, lock_acquired=False):
                     "error": "Another news check is already running. Please try again shortly.",
                     "started_at": now, "finished_at": now, "trigger": trigger,
                     "new_drafts": 0, "last_draft": None,
+                    "progress": {"phase": "starting", "message": "Waiting for active scan..."},
                 }
         return
     with _check_lock:
@@ -66,9 +75,10 @@ def _run_check(trigger, lock_acquired=False):
             "running": True, "finished": False, "result": None, "error": None,
             "started_at": started, "finished_at": None, "trigger": trigger,
             "new_drafts": 0, "last_draft": None,
+            "progress": {"phase": "starting", "message": "Preparing source scan..."},
         }
     try:
-        result = check_feeds(on_new_draft=_record_new_draft)
+        result = check_feeds(on_new_draft=_record_new_draft, on_progress=_record_check_progress)
         with _check_lock:
             _check_status = {
                 "running": False, "finished": True, "result": result, "error": None,
@@ -76,6 +86,9 @@ def _run_check(trigger, lock_acquired=False):
                 "trigger": trigger,
                 "new_drafts": int(_check_status.get("new_drafts", 0)),
                 "last_draft": _check_status.get("last_draft"),
+                "progress": {"phase": "complete", "feeds_processed": result.get("feeds_processed", 0),
+                             "feeds_total": result.get("feeds_configured", 0),
+                             "drafts_saved": result.get("drafts_saved", 0)},
             }
     except Exception as exc:
         app.logger.exception("News feed check failed")
@@ -87,6 +100,7 @@ def _run_check(trigger, lock_acquired=False):
                 "trigger": trigger,
                 "new_drafts": int(_check_status.get("new_drafts", 0)),
                 "last_draft": _check_status.get("last_draft"),
+                "progress": {"phase": "failed", "message": "News scan failed."},
             }
     finally:
         _feed_execution_lock.release()
@@ -216,7 +230,7 @@ function renderFeedHealth(data){
   const left=document.createElement('div');
   const name=document.createElement('div');name.className='feed-name';name.textContent=feed.source||'Unnamed source';
   const meta=document.createElement('div');meta.className='feed-meta';
-  meta.textContent='Priority: '+(feed.priority||'C · थप खोज')+' · Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New stories: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Undated: '+(feed.undated_skipped||0);
+  meta.textContent='Priority: '+(feed.priority||'C · थप खोज')+' · Entries: '+(feed.entries_found||0)+' · Fresh: '+(feed.fresh_candidates||0)+' · New stories: '+(feed.new_items||0)+' · Duplicates: '+(feed.already_seen||0)+' · Old: '+(feed.stale_skipped||0)+' · Undated review: '+(feed.undated_review_drafts||0)+' · Too short: '+(feed.short_source_skipped||0)+' · Undated skipped: '+(feed.undated_skipped||0);
   left.append(name,meta);
   const status=document.createElement('strong');
   if(feed.error){status.className='feed-error';status.textContent='ERROR';}
@@ -241,12 +255,18 @@ async function runCheck(){
   if(startState.error)throw new Error(startState.error);
   out.textContent='Checking RSS sources and preparing Nepali news drafts...';
   const poll=async()=>{
-   if(Date.now()-startedAt>180000)throw new Error('The check is taking longer than 3 minutes. It may still be running on the server; refresh the dashboard to see its latest status.');
+   if(Date.now()-startedAt>600000)throw new Error('The scan is taking longer than 10 minutes. Refresh the dashboard to see whether it is still running or has completed.');
    const response=await fetch('/run-check',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
    if(response.status===401)throw new Error('Your admin session expired. Please sign in again.');
    if(!response.ok)throw new Error('Could not read check status (HTTP '+response.status+')');
    const state=await response.json();
-   if(state.running){out.textContent='Still checking sources and preparing Nepali posts...';await new Promise(resolve=>setTimeout(resolve,2500));return poll();}
+   if(state.running){
+    const p=state.progress||{};
+    const where=p.source?' · '+p.source:'';
+    const count=Number(p.feeds_processed||0)+'/'+Number(p.feeds_total||0);
+    out.textContent='Checking news sources '+count+where+' · New drafts: '+Number(state.new_drafts||0);
+    await new Promise(resolve=>setTimeout(resolve,2500));return poll();
+   }
    if(state.finished){
     const data=state.result||{};
     renderFeedHealth(data);loadGroqUsage();
@@ -257,12 +277,17 @@ async function runCheck(){
      const lines=[
       'News check complete.',
       'Sources checked: '+(data.feeds_checked||0)+' / '+(data.feeds_configured||0),
-      'Fresh stories found: '+(data.fresh_candidates||0),
+      'Fresh dated stories found: '+(data.fresh_candidates||0),
+      'Undated multi-line drafts saved for manual review: '+(data.undated_review_drafts||0),
+      'Stories skipped because source text was too short: '+(data.short_source_skipped||0),
       'New drafts saved: '+(data.drafts_saved||0),
       'Potential breaking candidates: '+(data.breaking_candidates||0),
       'Already seen: '+(data.already_seen||0),
+      'Old stories skipped: '+(data.stale_skipped||0),
+      'Article pages fetched: '+(data.article_fetches||0),
       'Facebook posts published: '+(data.published||0)
      ];
+     if(!(data.drafts_saved||0))lines.push('No new eligible drafts were saved in this scan. Check source health for errors, duplicates, or no recent entries.');
      if(data.errors&&data.errors.length)lines.push('Issues:\\n- '+data.errors.join('\\n- '));
      out.textContent=lines.join('\\n');
     }
@@ -455,6 +480,8 @@ def run_check():
         _check_status = {
             "running": True, "finished": False, "result": None, "error": None,
             "started_at": started, "finished_at": None, "trigger": "manual",
+            "new_drafts": 0, "last_draft": None,
+            "progress": {"phase": "starting", "message": "Starting manual scan..."},
         }
     thread = threading.Thread(
         target=_run_check, args=("manual", True), daemon=True,
