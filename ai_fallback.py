@@ -82,7 +82,7 @@ def generate_with_gemini(prompt):
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Gemini fallback is not configured. Add GEMINI_API_KEY in Render.")
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
     response = requests.post(
         _GEMINI_URL.format(model=model),
         headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
