@@ -9,12 +9,12 @@ class RestoreDraftRevisionTests(unittest.TestCase):
     def test_restores_and_saves_current_text_to_history(self, connection):
         db = MagicMock()
         connection.return_value.__enter__.return_value = db
-        db.execute.side_effect = [
-            {"summary": "current text"},
-            {"previous_summary": "older text"},
-            None,
-            None,
-        ]
+        current_cursor = MagicMock()
+        current_cursor.fetchone.return_value = {"summary": "current text"}
+        selected_cursor = MagicMock()
+        selected_cursor.fetchone.return_value = {"previous_summary": "older text"}
+        db.execute.side_effect = [current_cursor, selected_cursor, None, None]
+
         self.assertTrue(restore_pending_draft_revision("story-1", 7))
         calls = db.execute.call_args_list
         self.assertIn("INSERT INTO draft_revision_history", calls[2].args[0])
@@ -26,7 +26,9 @@ class RestoreDraftRevisionTests(unittest.TestCase):
     def test_rejects_missing_or_reviewed_draft(self, connection):
         db = MagicMock()
         connection.return_value.__enter__.return_value = db
-        db.execute.return_value = None
+        current_cursor = MagicMock()
+        current_cursor.fetchone.return_value = None
+        db.execute.return_value = current_cursor
         self.assertFalse(restore_pending_draft_revision("story-1", 7))
 
     @patch("database.connection")
