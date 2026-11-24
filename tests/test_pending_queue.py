@@ -60,12 +60,16 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
         self.assertTrue(remember.called)
         publish.assert_not_called()
 
-    def test_only_fresh_high_priority_nonbreaking_https_items_are_eligible(self):
+    def test_only_fresh_configured_nonbreaking_https_items_are_eligible(self):
         from news_monitor import _non_ai_headline_is_eligible
         now = 1_800_000_000
         self.assertTrue(_non_ai_headline_is_eligible(
             "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Onlinekhabar",
             "https://www.onlinekhabar.com/story", now - 3600, now=now,
+        ))
+        self.assertTrue(_non_ai_headline_is_eligible(
+            "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Troll Cricket Nepal",
+            "https://example.com/story", now - 3600, now=now,
         ))
         self.assertFalse(_non_ai_headline_is_eligible(
             "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Unknown Feed",
@@ -77,7 +81,7 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
         ))
         self.assertFalse(_non_ai_headline_is_eligible(
             "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Onlinekhabar",
-            "https://www.onlinekhabar.com/story", now - 13 * 3600, now=now,
+            "https://www.onlinekhabar.com/story", now - 25 * 3600, now=now,
         ))
         self.assertFalse(_non_ai_headline_is_eligible(
             "भूकम्पपछि उद्धार कार्य जारी", "Onlinekhabar",
