@@ -9,6 +9,7 @@ from difflib import SequenceMatcher
 import requests
 
 from groq_budget import estimate_request_tokens, finish_groq_request, reserve_groq_request
+from story_quality import has_unsupported_numbers
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -283,6 +284,8 @@ def write_summary(title, description, source_name, article_url):
         try:
             generated = generate_with_gemini(prompt)
             prepared = prepare_news_post(generated, source_name)
+            if has_unsupported_numbers(prepared, title + "\n" + article_text):
+                raise RuntimeError("Generated summary introduced a number not present in the source; manual review is required.")
             finish_gemini_request(reservation, post_created=True)
             return prepared
         except Exception as fallback_error:
@@ -364,6 +367,8 @@ def write_summary(title, description, source_name, article_url):
                 if isinstance(block, dict) and block.get("type") == "text"
             )
         prepared = prepare_news_post(generated, source_name)
+        if has_unsupported_numbers(prepared, title + "\n" + article_text):
+            raise RuntimeError("Generated summary introduced a number not present in the source; manual review is required.")
         finish_groq_request(
             reservation, actual_tokens=actual_tokens, post_created=True
         )
