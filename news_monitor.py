@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from urllib.parse import urlencode, urlsplit
@@ -396,15 +397,15 @@ def _build_non_ai_summary_post(title, article_text):
 
     # Keep complete source sentences. This is deliberately extractive: no AI,
     # inference, added context, or paraphrased claims are used during outages.
-    candidates = re.split(r"(?<=[।!?])\\s+|(?<=[.!?])\\s+(?=[\\u0900-\\u097F])", source_text)
+    candidates = re.split(r"(?<=[।!?])\s+|(?<=[.!?])\s+(?=[\u0900-\u097F])", source_text)
     body_lines = []
     for candidate in candidates:
         line = clean_text(candidate, 420).strip(" -|—–")
         if len(line) < 25:
             continue
-        if len(re.findall(r"[\\u0900-\\u097F]", line)) < 12:
+        if len(re.findall(r"[\u0900-\u097F]", line)) < 12:
             continue
-        if re.search(r"https?://|www\\.|(?:स्रोत|श्रोत|प्रकाशित समय|अपडेट समय)", line, re.IGNORECASE):
+        if re.search(r"https?://|www\.|(?:स्रोत|श्रोत|प्रकाशित समय|अपडेट समय)", line, re.IGNORECASE):
             continue
         if SequenceMatcher(None, headline.casefold(), line.casefold()).ratio() >= 0.82:
             continue
@@ -416,7 +417,7 @@ def _build_non_ai_summary_post(title, article_text):
     if len(body_lines) < 2:
         return None
     body_lines[-1] = body_lines[-1].rstrip(" ।.!?") + " 📰"
-    return "📰 समाचार अपडेट\\n\\n" + headline + "\\n" + "\\n".join(body_lines)
+    return "📰 समाचार अपडेट\n\n" + headline + "\n" + "\n".join(body_lines)
 
 
 def _save_short_source_headline_for_review(item_id, title, publisher, article_url,
@@ -453,7 +454,7 @@ def _save_short_source_headline_for_review(item_id, title, publisher, article_ur
 
 def _publish_non_ai_headline(item_id, title, publisher, article_url, article_text="",
                              published_timestamp=None, on_new_draft=None, result=None):
-    """Save/publish a clearly labelled headline-only notice during AI provider outages."""
+    """Save/publish a source-only multi-line summary during AI provider outages."""
     if os.getenv("ENABLE_NON_AI_HEADLINE_PUBLISHING", "true").strip().lower() != "true":
         return False
     if not _non_ai_headline_is_eligible(title, publisher, article_url, published_timestamp):
@@ -741,7 +742,7 @@ def check_feeds(on_new_draft=None):
                         ai_paused_for_scan = True
                         provider_fallback_active = True
                         if _publish_non_ai_headline(
-                            item_id, title, publisher, article_url,
+                            item_id, title, publisher, article_url, article_text=article_text,
                             published_timestamp=timestamp, on_new_draft=on_new_draft, result=result,
                         ):
                             detail["new_items"] += 1
