@@ -311,6 +311,11 @@ def get_due_pending_stories(limit=5):
             SET status='expired', article_text='', updated_at=CURRENT_TIMESTAMP
             WHERE status='pending' AND expires_at <= CURRENT_TIMESTAMP
         """)
+        db.execute("""
+            DELETE FROM pending_stories
+            WHERE status IN ('completed', 'expired')
+              AND updated_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
+        """)
         rows = db.execute("""
             SELECT item_id, title, source, url, article_text, published_at,
                    attempts, created_at, expires_at
