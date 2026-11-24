@@ -105,7 +105,11 @@ def _post_to_groq_with_failover(payload, timeout=45):
         )
         if response.ok:
             return response
-        if response.status_code in (429, 401, 403):
+        if response.status_code == 429:
+            # Respect provider quotas. Groq limits are organization-scoped;
+            # do not rotate keys to evade an exhausted rate limit.
+            return response
+        if response.status_code in (401, 403):
             detail = str(getattr(response, "text", ""))[:450].replace("\\n", " ").replace("\\r", " ")
             cooldown = _key_cooldown_seconds(detail, response.status_code)
             with _KEY_STATE_LOCK:
