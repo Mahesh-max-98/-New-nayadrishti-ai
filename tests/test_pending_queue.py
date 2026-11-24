@@ -37,12 +37,14 @@ class NonAiHeadlineFallbackTests(unittest.TestCase):
 
         result = {"drafts_saved": 0, "new_items": 0, "breaking_candidates": 0}
         callback_items = []
-        with patch.object(news_monitor, "detect_breaking_news", return_value=(False, "")), \\
-             patch.object(news_monitor, "assess_cross_source_coverage", return_value="single_source"), \\
-             patch.object(news_monitor, "save_draft") as save_draft, \\
-             patch.object(news_monitor, "set_draft_status") as set_status, \\
-             patch.object(news_monitor, "remember") as remember, \\
-             patch.object(news_monitor, "_publish_facebook_tracked") as publish:
+        with (
+            patch.object(news_monitor, "detect_breaking_news", return_value=(False, "")),
+            patch.object(news_monitor, "assess_cross_source_coverage", return_value="single_source"),
+            patch.object(news_monitor, "save_draft") as save_draft,
+            patch.object(news_monitor, "set_draft_status") as set_status,
+            patch.object(news_monitor, "remember") as remember,
+            patch.object(news_monitor, "_publish_facebook_tracked") as publish,
+        ):
             saved = news_monitor._save_short_source_headline_for_review(
                 "item-1", "नेपालमा नयाँ समाचार शीर्षक", "Onlinekhabar",
                 "https://example.com/story", published_timestamp=1800000000,
