@@ -118,7 +118,7 @@ def get_groq_usage_status():
         "last_error": row["last_error"],
         "requests_remaining": max(0, limits["request_limit"] - int(row["requests_started"])),
         "tokens_remaining": max(0, limits["token_limit"] - int(row["tokens_used"]) - int(row["reserved_tokens"])),
-        "posts_remaining": max(0, limits["post_limit"] - int(row["posts_created"])),
+        "posts_remaining": max(0, limits["post_limit"] - int(row["posts_created"]) - int(fallback_row["posts_created"])),
     }
 
 
