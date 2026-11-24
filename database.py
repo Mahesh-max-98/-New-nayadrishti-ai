@@ -411,6 +411,6 @@ def count_non_ai_headline_posts_today():
             SELECT COUNT(*) AS total
             FROM drafts
             WHERE category='स्रोत शीर्षक'
-              AND created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Kathmandu')
+              AND created_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kathmandu') - INTERVAL '5 hours 45 minutes')
         """).fetchone()
     return int(row["total"] or 0)
