@@ -12,7 +12,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import already_seen, already_seen_title, already_seen_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story
+from database import already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story
 from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text
 
@@ -309,12 +309,22 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
         except Exception:
             log.exception("Could not publish live dashboard progress")
 
-    status = "draft"
+    # Mark the AI work complete before calling Facebook. This prevents a
+    # successful external publish from being repeated if the DB connection
+    # drops immediately after Facebook accepts the post.
+    set_draft_status(item_id, "draft")
+    remember(item_id, title, publisher, article_url, "draft")
+    complete_pending_story(item_id)
+    if result is not None:
+        result["drafts_saved"] += 1
+        result["new_items"] += 1
+
     if os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true":
         try:
             published = publish_text(post_text)
             if published.get("published"):
-                status = "published"
+                set_draft_status(item_id, "published")
+                remember(item_id, title, publisher, article_url, "published")
                 if result is not None:
                     result["published"] += 1
         except Exception as exc:
@@ -323,13 +333,6 @@ def _publish_processed_story(item_id, title, publisher, article_url, article_tex
                 result["errors"].append(
                     f"{publisher} publish failed: {type(exc).__name__}: {str(exc)[:160]}"
                 )
-
-    set_draft_status(item_id, status)
-    remember(item_id, title, publisher, article_url, status)
-    complete_pending_story(item_id)
-    if result is not None:
-        result["drafts_saved"] += 1
-        result["new_items"] += 1
 
 
 def _provider_failure_pauses_scan(error_text, result):
@@ -478,7 +481,7 @@ def check_feeds(on_new_draft=None):
                     continue
 
                 item_id = hashlib.sha256((publisher.lower() + "|" + article_url).encode("utf-8")).hexdigest()
-                if already_seen(item_id) or already_seen_title(title) or already_seen_story(title, article_url):
+                if already_seen(item_id) or already_seen_title(title) or already_seen_story(title, article_url) or already_pending_story(title, article_url):
                     detail["already_seen"] += 1
                     result["already_seen"] += 1
                     continue
