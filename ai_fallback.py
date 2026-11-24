@@ -93,6 +93,10 @@ def _gemini_pause_seconds(error):
         return 300
     if status in (500, 502, 504):
         return 120
+    if status in (400, 401, 403, 404):
+        # Configuration/authentication failures will not recover in seconds.
+        # Keep the persistent queue, but avoid hammering the same bad setup.
+        return 6 * 3600
     return 0
 
 

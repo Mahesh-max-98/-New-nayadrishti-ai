@@ -59,6 +59,24 @@ def init_db():
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'अन्य'")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS is_breaking BOOLEAN DEFAULT FALSE")
         db.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS breaking_reason TEXT DEFAULT ''")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_stories (
+                item_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT '',
+                url TEXT NOT NULL,
+                article_text TEXT NOT NULL DEFAULT '',
+                published_at TIMESTAMPTZ,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMPTZ NOT NULL,
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("CREATE INDEX IF NOT EXISTS pending_stories_due_idx ON pending_stories(status, next_attempt_at, expires_at)")
 
 
 def already_seen(item_id):
@@ -230,3 +248,156 @@ def assess_cross_source_coverage(title, source, limit=500):
                 "note": "Similar headlines found from other publishers. This is corroborating coverage, not proof that every claim is correct."}
     return {"status": "single_source", "count": 1, "sources": source,
             "note": "No sufficiently similar report from another publisher was found in the recent collected headlines. This is not proof that the story is false or verified."}
+
+
+def enqueue_pending_story(item_id, title, source, url, article_text, published_at=None):
+    """Persist an unprocessed story so provider outages never lose it."""
+    from datetime import timedelta
+
+    try:
+        retention_hours = int(os.getenv("PENDING_NEWS_RETENTION_HOURS", "168"))
+    except (TypeError, ValueError):
+        retention_hours = 168
+    retention_hours = max(24, min(retention_hours, 336))
+    with connection() as db:
+        db.execute("""
+            INSERT INTO pending_stories (
+                item_id, title, source, url, article_text, published_at,
+                status, attempts, next_attempt_at, expires_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, 'pending', 0, CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP + (%s * INTERVAL '1 hour'))
+            ON CONFLICT(item_id) DO UPDATE SET
+                article_text=CASE WHEN length(EXCLUDED.article_text) > length(pending_stories.article_text)
+                                  THEN EXCLUDED.article_text ELSE pending_stories.article_text END,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE pending_stories.status='pending'
+        """, (
+            item_id, title[:300], source[:120], url[:2000],
+            (article_text or "")[:7000], published_at, retention_hours,
+        ))
+
+
+def already_pending_story(title, url, similarity_threshold=0.90):
+    """Avoid queuing the same report again from another RSS discovery feed."""
+    from difflib import SequenceMatcher
+
+    normalized_title = _normalize_story_title(title)
+    normalized_url = _normalize_story_url(url)
+    if not normalized_title:
+        return False
+    with connection() as db:
+        rows = db.execute("""
+            SELECT title, url FROM pending_stories
+            WHERE status='pending'
+            ORDER BY created_at DESC LIMIT 500
+        """).fetchall()
+    for row in rows:
+        previous_url = _normalize_story_url(row.get("url"))
+        if normalized_url and previous_url and normalized_url == previous_url:
+            return True
+        previous_title = _normalize_story_title(row.get("title"))
+        if len(normalized_title) >= 18 and len(previous_title) >= 18:
+            if SequenceMatcher(None, normalized_title, previous_title).ratio() >= similarity_threshold:
+                return True
+    return False
+
+
+def get_due_pending_stories(limit=5):
+    """Return queued stories whose next retry time has arrived."""
+    with connection() as db:
+        db.execute("""
+            UPDATE pending_stories
+            SET status='expired', article_text='', updated_at=CURRENT_TIMESTAMP
+            WHERE status='pending' AND expires_at <= CURRENT_TIMESTAMP
+        """)
+        db.execute("""
+            DELETE FROM pending_stories
+            WHERE status IN ('completed', 'expired')
+              AND updated_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
+        """)
+        rows = db.execute("""
+            SELECT item_id, title, source, url, article_text, published_at,
+                   attempts, created_at, expires_at
+            FROM pending_stories
+            WHERE status='pending'
+              AND next_attempt_at <= CURRENT_TIMESTAMP
+              AND expires_at > CURRENT_TIMESTAMP
+            ORDER BY created_at ASC
+            LIMIT %s
+        """, (max(1, min(int(limit), 25)),)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def pending_retry_delay_seconds(attempt_number):
+    """Return an exponential retry delay, capped at one day."""
+    delays = (900, 1800, 3600, 7200, 14400, 28800, 43200, 86400)
+    try:
+        attempt = max(1, int(attempt_number))
+    except (TypeError, ValueError):
+        attempt = 1
+    return delays[min(attempt - 1, len(delays) - 1)]
+
+
+def retry_pending_story(item_id, error=""):
+    """Schedule a progressively slower retry, up to once every 24 hours."""
+    with connection() as db:
+        row = db.execute("""
+            SELECT attempts, expires_at
+            FROM pending_stories
+            WHERE item_id=%s AND status='pending'
+            FOR UPDATE
+        """, (item_id,)).fetchone()
+        if not row:
+            return
+        attempts = int(row["attempts"]) + 1
+        delay = pending_retry_delay_seconds(attempts)
+        db.execute("""
+            UPDATE pending_stories
+            SET attempts=%s,
+                next_attempt_at=CURRENT_TIMESTAMP + (%s * INTERVAL '1 second'),
+                status=CASE
+                    WHEN expires_at <= CURRENT_TIMESTAMP + (%s * INTERVAL '1 second')
+                    THEN 'expired' ELSE 'pending' END,
+                article_text=CASE
+                    WHEN expires_at <= CURRENT_TIMESTAMP + (%s * INTERVAL '1 second')
+                    THEN '' ELSE article_text END,
+                last_error=%s,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE item_id=%s
+        """, (attempts, delay, delay, delay, (error or "")[:500], item_id))
+
+
+def complete_pending_story(item_id):
+    """Mark a story completed and erase its temporary source-text copy."""
+    with connection() as db:
+        db.execute("""
+            UPDATE pending_stories
+            SET status='completed', article_text='', last_error='',
+                updated_at=CURRENT_TIMESTAMP
+            WHERE item_id=%s AND status='pending'
+        """, (item_id,))
+
+
+def get_pending_queue_status():
+    """Return safe counts for the admin dashboard."""
+    with connection() as db:
+        row = db.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE status='pending') AS pending,
+                COUNT(*) FILTER (WHERE status='pending' AND next_attempt_at <= CURRENT_TIMESTAMP) AS due,
+                COUNT(*) FILTER (WHERE status='expired') AS expired
+            FROM pending_stories
+        """).fetchone()
+    return {key: int(value or 0) for key, value in row.items()}
+
+
+def expire_pending_story(item_id, reason="Story became too old to publish safely."):
+    """Retain the audit status but remove temporary source text."""
+    with connection() as db:
+        db.execute("""
+            UPDATE pending_stories
+            SET status='expired', article_text='', last_error=%s,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE item_id=%s AND status='pending'
+        """, ((reason or "")[:500], item_id))

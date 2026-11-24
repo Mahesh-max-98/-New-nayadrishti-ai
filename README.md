@@ -54,6 +54,8 @@ Optional:
 - `GEMINI_MODEL` (default: `gemini-3.8-flash`)
 - `MAX_FALLBACK_AI_REQUESTS_PER_DAY` (default: 50)
 - `MAX_NEWS_POSTS_PER_DAY` (default: 100)
+- `PENDING_NEWS_RETENTION_HOURS` (default: 168; pending stories are retained for up to 7 days)
+- `PENDING_NEWS_MAX_PUBLISH_AGE_HOURS` (default: 72; older stories expire instead of being auto-published)
 - `GROQ_MAX_ARTICLE_CHARS` (default: 1000; maximum accepted: 2000)
 - `GROQ_MIN_REQUEST_INTERVAL_SECONDS` (default: 15; serializes requests to protect free-tier rate limits)
 - `MAX_AI_REQUESTS_PER_SCAN` (default: 5; maximum: 5; unprocessed stories remain eligible for later scans)
@@ -134,3 +136,12 @@ When Groq returns a rate-limit or temporary provider error, NayaDrishti tries th
 The dashboard usage panel reports when Gemini is cooling down. Groq and Gemini usage limits are tracked separately, while the overall daily draft ceiling remains shared. This improves recovery but cannot guarantee that a new AI-written post can be created while both providers are unavailable.
 
 Facebook publishing is a separate setting. When ENABLE_FACEBOOK_PUBLISHING=true, a successfully generated and validated post can be sent to the configured Page whether Groq or Gemini wrote it. If both AI providers are unavailable, NayaDrishti safely waits rather than inventing a summary or copying a publisher's article. Facebook's own API permissions, availability and rate limits still apply. Render Free may also sleep, so automatic checks are not guaranteed 24/7.
+
+
+## Phase 15 — long provider-outage recovery queue
+
+Every eligible story is saved to PostgreSQL before its AI-writing attempt. If Groq and Gemini both fail, the story remains in a durable pending queue and is retried automatically when the next retry time arrives. The retry delay grows progressively: 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 12 hours, then once every 24 hours. Queue retention defaults to 7 days and is configurable with `PENDING_NEWS_RETENTION_HOURS`.
+
+To avoid publishing stale news, queued stories older than 72 hours by default are expired rather than auto-published. This safety window is configurable with `PENDING_NEWS_MAX_PUBLISH_AGE_HOURS` (24–168 hours). Completed and expired queue records are cleaned up after 30 days. The admin usage panel shows pending, due-for-retry, and expired queue counts.
+
+The queue does not create a post while both providers are unavailable. When either provider recovers, queued stories are processed before newly discovered stories. A validated post is then saved and sent through the configured Facebook publishing setting. Render Free instances can sleep, so retries happen only while the service or a separate always-on worker is running.
