@@ -19,5 +19,50 @@ class PendingStoryRetryScheduleTests(unittest.TestCase):
         self.assertEqual(pending_retry_delay_seconds("not-a-number"), 900)
 
 
+class NonAiHeadlineFallbackTests(unittest.TestCase):
+    def test_post_is_transparent_and_links_to_original(self):
+        from news_monitor import _build_non_ai_headline_post
+        post = _build_non_ai_headline_post(
+            "नेपालमा नयाँ समाचार शीर्षक",
+            "https://example.com/story",
+        )
+        self.assertIn("AI सारांश उपलब्ध छैन", post)
+        self.assertIn("नेपालमा नयाँ समाचार शीर्षक", post)
+        self.assertIn("https://example.com/story", post)
+        self.assertIn("मूल समाचारको शीर्षक", post)
+
+    def test_only_fresh_high_priority_nonbreaking_https_items_are_eligible(self):
+        from news_monitor import _non_ai_headline_is_eligible
+        now = 1_800_000_000
+        self.assertTrue(_non_ai_headline_is_eligible(
+            "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 3600, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Unknown Feed",
+            "https://example.com/story", now - 3600, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Onlinekhabar",
+            "http://www.onlinekhabar.com/story", now - 3600, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "नेपालमा नयाँ शिक्षा नीति सार्वजनिक", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 13 * 3600, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "भूकम्पपछि उद्धार कार्य जारी", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 1800, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "Major policy announced by government", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 1800, now=now,
+        ))
+        self.assertFalse(_non_ai_headline_is_eligible(
+            "बाढी प्रभावित क्षेत्रमा राहत वितरण", "Onlinekhabar",
+            "https://www.onlinekhabar.com/story", now - 5 * 3600, now=now,
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()

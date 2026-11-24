@@ -145,3 +145,10 @@ Every eligible story is saved to PostgreSQL before its AI-writing attempt. If Gr
 To avoid publishing stale news, queued stories older than 72 hours by default are expired rather than auto-published. This safety window is configurable with `PENDING_NEWS_MAX_PUBLISH_AGE_HOURS` (24–168 hours). Completed and expired queue records are cleaned up after 30 days. The admin usage panel shows pending, due-for-retry, and expired queue counts.
 
 The queue does not create a post while both providers are unavailable. When either provider recovers, queued stories are processed before newly discovered stories. A validated post is then saved and sent through the configured Facebook publishing setting. Render Free instances can sleep, so retries happen only while the service or a separate always-on worker is running.
+
+
+## Phase 16 — no-AI headline-only fallback
+
+If Groq and Gemini both fail during a scan, NayaDrishti can still publish a limited, clearly labelled headline notice from an eligible RSS/Google News discovery item. This is **not an AI-written summary**: the post contains only the original headline, a notice that an AI summary is unavailable, and the original article link. It does not copy the article body, invent facts, or pretend that a summary was generated.
+
+The fallback is restricted to HTTPS links, higher-priority configured publishers, dated stories no older than 12 hours, and non-breaking items. Potential breaking/emergency items are held for an AI-written summary or human review. The daily fallback cap defaults to 10 and can be adjusted with `MAX_NON_AI_HEADLINE_POSTS_PER_DAY` (maximum 30). The feature can be disabled with `ENABLE_NON_AI_HEADLINE_PUBLISHING=false`. It still requires `ENABLE_FACEBOOK_PUBLISHING=true` and valid Facebook Page credentials to publish; otherwise it saves a clearly labelled draft. Normal AI-generated posts continue to use Groq/Gemini when available.
