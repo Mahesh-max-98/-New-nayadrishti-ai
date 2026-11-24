@@ -10,7 +10,7 @@ on:
       - "tests/**"
       - ".github/workflows/phase18-tests.yml"
   push:
-    branches: [main]
+    branches: [main, phase-18-facebook-publishing-reliability]
     paths:
       - "app.py"
       - "database.py"
