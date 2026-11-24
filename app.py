@@ -208,10 +208,12 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}details>summary{cur
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
 <p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
 <form class="filters" method="get" action="/">
+<label for="draft-search">Search news</label><input id="draft-search" name="q" type="search" value="{{ search_query }}" placeholder="Search headline or news text..." style="width:min(100%,320px);margin:0">
 <label for="category">Category</label><select id="category" name="category"><option value="">All categories ({{ total_drafts }})</option>{% for category in category_options %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }} ({{ category_counts.get(category, 0) }})</option>{% endfor %}</select>
 <label><input type="checkbox" name="breaking" value="1" {% if breaking_only %}checked{% endif %} style="width:auto;margin:0 5px 0 0"> Potential breaking only ({{ breaking_count }})</label>
-<button type="submit">Apply filters</button><a href="/">Clear</a>
+<button type="submit">Search / filter</button><a href="/">Clear</a>
 </form>
+{% if search_query %}<p class="small">Search results for “{{ search_query }}”: {{ drafts|length }} matching drafts.</p>{% endif %}
 <p class="small">Breaking labels are automatic signals based on urgent wording, source priority and a recent publication time. They are not confirmation; check the original article.</p>
 {% if notice %}<p class="status" role="status">{{ notice }}</p>{% endif %}
 {% for d in drafts %}<article class="draft">{% if d.is_breaking %}<span class="tag tag-breaking">सम्भावित ब्रेकिङ</span><p class="small">{{ d.breaking_reason }}</p>{% endif %}<span class="tag">{{ d.category or "अन्य" }}</span><h3>{{ d.summary }}</h3>
@@ -497,11 +499,23 @@ def home():
     logged_in = bool(session.get("admin"))
     all_drafts = get_drafts(limit=100) if logged_in else []
     selected_category = (request.args.get("category") or "").strip()
+    search_query = (request.args.get("q") or "").strip()[:100]
+    search_term = search_query.casefold()
     breaking_only = request.args.get("breaking") == "1"
     category_options = ["राजनीति", "खेलकुद", "अर्थतन्त्र", "शिक्षा", "प्रविधि", "अन्तर्राष्ट्रिय", "अन्य"]
     category_counts = {category: sum(1 for draft in all_drafts if (draft.get("category") or "अन्य") == category) for category in category_options}
     breaking_count = sum(1 for draft in all_drafts if draft.get("is_breaking"))
-    drafts = [draft for draft in all_drafts if (not selected_category or (draft.get("category") or "अन्य") == selected_category) and (not breaking_only or draft.get("is_breaking"))]
+    drafts = [
+        draft for draft in all_drafts
+        if (not selected_category or (draft.get("category") or "अन्य") == selected_category)
+        and (not breaking_only or draft.get("is_breaking"))
+        and (
+            not search_term
+            or search_term in str(draft.get("summary") or "").casefold()
+            or search_term in str(draft.get("source") or "").casefold()
+            or search_term in str(draft.get("category") or "").casefold()
+        )
+    ]
     return render_template_string(
         PAGE,
         logged_in=logged_in,
@@ -510,6 +524,7 @@ def home():
         category_options=category_options,
         category_counts=category_counts,
         selected_category=selected_category,
+        search_query=search_query,
         breaking_only=breaking_only,
         breaking_count=breaking_count,
         feed_count=len(configured_feeds()),
