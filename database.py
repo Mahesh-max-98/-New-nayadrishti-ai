@@ -87,6 +87,24 @@ def init_db():
             )
         """)
         db.execute("CREATE INDEX IF NOT EXISTS facebook_publications_status_idx ON facebook_publications(status, updated_at DESC)")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS facebook_publishing_control (
+                id SMALLINT PRIMARY KEY CHECK (id = 1),
+                auth_blocked BOOLEAN NOT NULL DEFAULT FALSE,
+                reason TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Preserve the previous authentication failure as a persistent safety stop.
+        db.execute("""
+            INSERT INTO facebook_publishing_control (id, auth_blocked, reason)
+            SELECT 1, TRUE, 'Facebook publishing paused after a previous Meta authentication error. Run the connection check.'
+            WHERE EXISTS (
+                SELECT 1 FROM facebook_publications
+                WHERE status='failed' AND error_code LIKE '190%'
+            )
+            ON CONFLICT (id) DO NOTHING
+        """)
 
 
 def already_seen(item_id):
@@ -458,6 +476,29 @@ def finish_facebook_publication(item_id, status, post_id=None, error_code=None, 
             WHERE item_id=%s AND status='publishing'
         """, (status, post_id, (str(error_code)[:80] if error_code else None),
               (error_message or "")[:300], item_id))
+
+
+def get_facebook_publishing_control():
+    """Return the persistent authentication circuit-breaker state."""
+    with connection() as db:
+        row = db.execute("""
+            SELECT auth_blocked, reason, updated_at
+            FROM facebook_publishing_control WHERE id=1
+        """).fetchone()
+    return dict(row) if row else {"auth_blocked": False, "reason": ""}
+
+
+def set_facebook_publishing_blocked(blocked, reason=""):
+    """Pause publishing after auth errors; clear only after a successful connection check."""
+    with connection() as db:
+        db.execute("""
+            INSERT INTO facebook_publishing_control (id, auth_blocked, reason)
+            VALUES (1, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                auth_blocked=EXCLUDED.auth_blocked,
+                reason=EXCLUDED.reason,
+                updated_at=CURRENT_TIMESTAMP
+        """, (bool(blocked), (reason or "")[:300]))
 
 
 def get_facebook_publication_status(limit=30):

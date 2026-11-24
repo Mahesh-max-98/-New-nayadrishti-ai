@@ -14,7 +14,7 @@ import feedparser
 import requests
 
 from ai_writer import write_summary
-from database import begin_facebook_publication, finish_facebook_publication, already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today
+from database import begin_facebook_publication, finish_facebook_publication, already_seen, already_seen_title, already_seen_story, already_pending_story, assess_cross_source_coverage, remember, save_draft, set_draft_status, enqueue_pending_story, get_due_pending_stories, retry_pending_story, complete_pending_story, get_pending_queue_status, expire_pending_story, count_non_ai_headline_posts_today, get_facebook_publishing_control, set_facebook_publishing_blocked
 from groq_budget import get_groq_usage_status
 from facebook_publisher import publish_text, FacebookPublishError
 
@@ -292,7 +292,11 @@ def _publisher_from_google_title(title, fallback):
 
 
 def _publish_facebook_tracked(item_id, post_text):
-    """Publish once per story and persist the result without unsafe blind retries."""
+    """Publish once per story; pause all publishing after a token-authentication failure."""
+    control = get_facebook_publishing_control()
+    if control.get("auth_blocked"):
+        return {"status": "failed", "reason": control.get("reason") or
+                "Facebook publishing is paused. Run the read-only connection check first."}
     reservation = begin_facebook_publication(item_id)
     if not reservation:
         return {"status": "unknown", "reason": "Could not confirm the durable publishing reservation."}
@@ -309,10 +313,16 @@ def _publish_facebook_tracked(item_id, post_text):
         remember(item_id, "", "", "", "published")
         return {"status": "published", "post_id": outcome.get("post_id")}
     except FacebookPublishError as exc:
+        stored_code = (f"{exc.error_code}/{exc.error_subcode}"
+                       if exc.error_code and exc.error_subcode else exc.error_code or exc.status_code)
         finish_facebook_publication(
-            item_id, "failed", error_code=exc.error_code or exc.status_code,
+            item_id, "failed", error_code=stored_code,
             error_message=str(exc),
         )
+        if str(exc.error_code) == "190":
+            set_facebook_publishing_blocked(
+                True, "Facebook publishing paused after Meta rejected the Page access token. Run the read-only connection check."
+            )
         return {"status": "failed", "reason": str(exc)}
     except Exception as exc:
         # A timeout or network failure is ambiguous: Meta may already have accepted the post.

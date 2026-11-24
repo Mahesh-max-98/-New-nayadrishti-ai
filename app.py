@@ -8,10 +8,10 @@ from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
-from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status
+from database import get_drafts, init_db, set_draft_status, get_pending_queue_status, get_facebook_publication_status, get_facebook_publishing_control, set_facebook_publishing_blocked
 from groq_budget import get_groq_usage_status
 from news_monitor import check_feeds, configured_feeds
-from facebook_publisher import facebook_configuration_status
+from facebook_publisher import facebook_configuration_status, check_facebook_connection
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "").strip()
@@ -175,6 +175,8 @@ a{color:#1d4ed8;overflow-wrap:anywhere}.danger{color:#b91c1c}
 <div id="facebook-status" class="small" role="status" aria-live="polite">Loading Facebook publishing status...</div>
 <div id="facebook-history" class="small" aria-live="polite">Loading publication history...</div>
 <button type="button" class="secondary" id="refresh-facebook-status" onclick="loadFacebookStatus()">Refresh Facebook status</button>
+<button type="button" class="secondary" id="check-facebook-connection" onclick="checkFacebookConnection()">Check connection · read-only, no post</button>
+<div id="facebook-connection-result" class="status" role="status" aria-live="polite">Connection check has not been run.</div>
 </section>
 <section><div class="top"><h2>News drafts</h2><span class="small">{{ drafts|length }} waiting for review</span></div>
 <p class="small">Review each Nepali post before using it. Coverage labels compare collected headlines only; they do not prove a claim. Open original reports and compare details. Approve marks it reviewed only; it does not publish to Facebook.</p>
@@ -213,11 +215,12 @@ async function loadFacebookStatus(){
   if(response.status===401||response.status===403)throw new Error("Your admin session has expired or lacks permission. Sign in again to view Facebook status.");
   if(!response.ok)throw new Error("Facebook status request failed (HTTP "+response.status+").");
   const data=await response.json();
-  const config=data.config||{},history=data.history||{},counts=history.counts||{};
+  const config=data.config||{},history=data.history||{},counts=history.counts||{},control=data.publishing_control||{};
   const line=document.createElement("p");
   line.textContent="Configuration: "+(config.enabled?(config.credentials_present?"Configured · permissions not verified":"Incomplete · add missing Page credentials"):"Disabled")+
    " · Page ID: "+(config.page_id_configured?"configured":"missing")+
-   " · Page access token: "+(config.page_token_configured?"configured":"missing");
+   " · Page access token: "+(config.page_token_configured?"configured":"missing")+
+   (control.auth_blocked?" · AUTO-PUBLISH PAUSED: "+(control.reason||"connection check required"):"");
   statusTarget.replaceChildren(line);
   const totals=document.createElement("p");
   totals.textContent="Publication totals: "+(counts.published||0)+" published · "+(counts.failed||0)+" failed · "+(counts.unknown||0)+" uncertain · "+(counts.publishing||0)+" in progress.";
@@ -239,6 +242,23 @@ async function loadFacebookStatus(){
   statusTarget.textContent=error.message||"Could not load Facebook configuration status.";
   historyTarget.textContent="Publication history could not be loaded. Refresh after signing in again.";
  }finally{if(refreshButton)refreshButton.disabled=false;}
+}
+async function checkFacebookConnection(){
+ const button=document.getElementById("check-facebook-connection");
+ const target=document.getElementById("facebook-connection-result");
+ if(!button||!target)return;
+ button.disabled=true;target.textContent="Checking the Page connection with a read-only Meta request...";
+ try{
+  const response=await fetch("/facebook-connection-check",{method:"POST",credentials:"same-origin",cache:"no-store",headers:{"Accept":"application/json"}});
+  const result=await response.json().catch(()=>({}));
+  if(response.status===401)throw new Error("Your admin session expired. Sign in again.");
+  if(!response.ok)throw new Error(result.message||"Connection check failed (HTTP "+response.status+").");
+  target.textContent=result.message||"Connection check finished.";
+  if(result.page_name)target.textContent+=" Page: "+result.page_name+".";
+  if(result.error_code)target.textContent+=" Error code: "+result.error_code+(result.error_subcode?"/"+result.error_subcode:"")+".";
+  await loadFacebookStatus();
+ }catch(error){target.textContent=error.message||"Could not check the Facebook connection.";}
+ finally{button.disabled=false;}
 }
 async function loadGroqUsage(){
  const target=document.getElementById("groq-usage");if(!target)return;
@@ -449,6 +469,24 @@ def facebook_status():
     return jsonify(
         config=facebook_configuration_status(),
         history=get_facebook_publication_status(limit=20),
+        publishing_control=get_facebook_publishing_control(),
+    )
+
+
+@app.post("/facebook-connection-check")
+@login_required
+def facebook_connection_check():
+    """Validate the configured Page token with a read-only Graph API request."""
+    result = check_facebook_connection()
+    if result.get("ok"):
+        set_facebook_publishing_blocked(False, "")
+    elif str(result.get("error_code")) == "190":
+        set_facebook_publishing_blocked(
+            True, "Facebook publishing paused after Meta rejected the Page access token. Reconnect the Page before enabling publishing."
+        )
+    return jsonify(
+        **result,
+        publishing_control=get_facebook_publishing_control(),
     )
 
 
