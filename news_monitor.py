@@ -430,7 +430,8 @@ def _provider_failure_pauses_scan(error_text, result):
         result["ai_budget_reason"] = error_text[:220]
         return True
     markers = (
-        "GEMINI_PROVIDER_PAUSED", "Gemini API error 400",
+        "GEMINI_PROVIDER_PAUSED", "Gemini fallback is not configured",
+        "No Groq API key is configured", "Gemini API error 400",
         "Gemini API error 401", "Gemini API error 403",
         "Gemini API error 404", "Gemini API error 429",
         "Gemini API error 500", "Gemini API error 502",
