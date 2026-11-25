@@ -717,6 +717,29 @@ def facebook_connection_check():
 def health():
     return jsonify(status="ok", service="NayaDrishti AI", mode="text_only")
 
+@app.get("/admin/setup-check")
+@login_required
+def admin_setup_check():
+    """Show configuration presence only; never return secret values."""
+    checks = {
+        "FLASK_SECRET_KEY": bool(os.getenv("FLASK_SECRET_KEY", "").strip()),
+        "DATABASE_URL": bool(os.getenv("DATABASE_URL", "").strip()),
+        "ADMIN_PASSWORD": bool(os.getenv("ADMIN_PASSWORD", "").strip()),
+        "SCHEDULER_SHARED_SECRET": bool(os.getenv("SCHEDULER_SHARED_SECRET", "").strip()),
+        "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY", "").strip()),
+        "GEMINI_API_KEY": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+        "FACEBOOK_PAGE_ID": bool((os.getenv("FB_PAGE_ID") or os.getenv("FACEBOOK_PAGE_ID") or "").strip()),
+        "FACEBOOK_PAGE_ACCESS_TOKEN": bool((os.getenv("FB_PAGE_ACCESS_TOKEN") or os.getenv("FACEBOOK_PAGE_ACCESS_TOKEN") or "").strip()),
+    }
+    required = ("FLASK_SECRET_KEY", "DATABASE_URL", "ADMIN_PASSWORD")
+    return jsonify(
+        status="ok" if all(checks[key] for key in required) else "needs_configuration",
+        checks=checks,
+        facebook_publishing_enabled=os.getenv("ENABLE_FACEBOOK_PUBLISHING", "false").strip().lower() == "true",
+        automatic_monitoring_enabled=os.getenv("ENABLE_AUTO_MONITORING", "true").strip().lower() == "true",
+        note="Only whether settings are present is shown. Secret values are never returned.",
+    )
+
 
 @app.post("/scheduled-check")
 def external_scheduled_check():
