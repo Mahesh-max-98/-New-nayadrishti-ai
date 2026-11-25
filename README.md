@@ -1,169 +1,29 @@
 # NayaDrishti AI
 
-NayaDrishti AI is a text-only Nepali news collection and Facebook publishing dashboard. It discovers recent stories through RSS/Atom feeds, reads the original article where accessible, prepares concise Nepali posts with Groq, stores drafts in PostgreSQL, avoids duplicates, and can publish text to a Facebook Page.
+A clean rebuild of the NayaDrishti AI Nepali news workspace.
 
-## What it does
+## Stage 1
+- Responsive landing page
+- Admin sign-in with session protection and CSRF validation
+- Health endpoint at `/health`
+- No news scanning, database, AI calls, scheduled jobs, or Facebook publishing yet
 
-1. Reads direct public RSS/Atom feeds from Onlinekhabar, Setopati, and Ratopati, plus configured feeds and Google News discovery feeds.
-2. Uses Google News discovery for RONB, Troll Cricket Nepal, BBC Nepali, OK Khabar, Laligurash Media Network, NEB, Thaha Khabar, Nepal Samaya, and other supported publishers.
-3. Sorts entries by publication date and skips undated or stale items.
-3. Opens the original article where accessible and prefers its text over a short RSS teaser.
-4. Checks item links and normalized headlines against previously seen stories.\n5. Checks higher-priority publisher feeds first and ranks each story using publisher priority, topical signals and freshness. Priority labels guide discovery order; they do not certify factual accuracy.
-6. Uses Groq first and Gemini as a backup to write a clear 3–6 line Nepali Facebook post.
-7. Keeps publisher details separately for review. Public post text has no source-credit line or publication timestamp.
-8. Saves the text draft; Facebook publishing remains OFF unless explicitly enabled.
-
-There is no Image Studio, image-generation route, image attachment, publisher-photo fetching, or image storage in this project.
-
-## News discovery sources
-
-Direct public RSS feeds are included for:
-- Onlinekhabar — https://www.onlinekhabar.com/feed
-- Setopati — https://www.setopati.com/feed
-- Ratopati — https://www.ratopati.com/feed\n- Nagarik News — https://nagariknews.nagariknetwork.com/feed
-
-Built-in Google News RSS discovery queries cover:
-- Routine of Nepal Banda (RONB)
-- Troll Cricket Nepal
-- BBC Nepali
-- Onlinekhabar, Setopati, and Ratopati
-- Thaha Khabar and Nepal Samaya
-- OK Khabar
-- Laligurash Media Network
-- Kantipur/eKantipur, Annapurna Post, Gorkhapatra, and Ujyaalo Online\n- National Examinations Board (NEB)
-
-Google News RSS is a discovery index. It does not scrape every post from those publishers' Facebook pages and cannot guarantee every story is found. The original publisher name is extracted from the Google News result title when available. Publisher/feed priority is used to order checks, and story candidates are ranked by publisher priority, topic keywords and freshness. This is a transparent discovery heuristic, not an independent fact-check or a guarantee that a publisher is always accurate. For stronger coverage, add official public RSS/Atom feed URLs or authorized publisher APIs through `NEWS_FEEDS`.
-
-Example:
-
-    NEWS_FEEDS=Publisher Name=https://publisher.example/rss.xml|Another Publisher=https://another.example/feed
-
-Only use feed URLs you are authorized to access. The app does not bypass paywalls or access private Facebook content.
-
-## Environment variables
-
-Required:
-- `ADMIN_PASSWORD`
-- `FLASK_SECRET_KEY`
-- `DATABASE_URL`
-- `GROQ_API_KEY`
+## Required environment variables
+- `FLASK_SECRET_KEY`: long random secret
+- `ADMIN_PASSWORD`: admin sign-in password
 
 Optional:
-- `GROQ_API_KEY_2`, `GROQ_API_KEY_3` (optional backup credentials; used only when an earlier key is rejected with an authentication error; duplicate values are ignored)\n- `GROQ_MODEL` (default: `openai/gpt-oss-120b`)
-- `GEMINI_API_KEY` (optional backup provider key)
-- `GEMINI_MODEL` (default: `gemini-3.8-flash`)
-- `MAX_FALLBACK_AI_REQUESTS_PER_DAY` (default: 50)
-- `MAX_NEWS_POSTS_PER_DAY` (default: 100)
-- `PENDING_NEWS_RETENTION_HOURS` (default: 168; pending stories are retained for up to 7 days)
-- `PENDING_NEWS_MAX_PUBLISH_AGE_HOURS` (default: 72; older stories expire instead of being auto-published)
-- `GROQ_MAX_ARTICLE_CHARS` (default: 1000; maximum accepted: 2000)
-- `GROQ_MIN_REQUEST_INTERVAL_SECONDS` (default: 15; serializes requests to protect free-tier rate limits)
-- `MAX_AI_REQUESTS_PER_SCAN` (default: 5; maximum: 5; unprocessed stories remain eligible for later scans)
-- `NEWS_FEEDS`
-- `NEWS_MAX_AGE_HOURS` (default: 36; maximum accepted: 168)
-- `MAX_STORIES_PER_FEED` (default: 2; maximum accepted: 5)
-- `ENABLE_AUTO_MONITORING` (default: true)
-- `NEWS_CHECK_INTERVAL_SECONDS` (default: 300; minimum: 60)
-- `ENABLE_FACEBOOK_PUBLISHING` (default: false)
-- `FB_PAGE_ID` / `FACEBOOK_PAGE_ID`
-- `FB_PAGE_ACCESS_TOKEN` / `FACEBOOK_PAGE_ACCESS_TOKEN`
-- `FB_GRAPH_VERSION` (default: v23.0)
-- `COOKIE_SECURE`
-- `LOG_LEVEL`
+- `COOKIE_SECURE`: defaults to `true`; set to `false` only for local HTTP testing
 
-Keep API keys, passwords, and access tokens in Render environment variables. Never commit them to GitHub or share them in chat/screenshots.
+Keep all secrets in the hosting provider's environment settings. Never commit them to GitHub.
+
+## Run locally
+```bash
+pip install -r requirements.txt
+FLASK_SECRET_KEY="local-test-secret" ADMIN_PASSWORD="local-test-password" COOKIE_SECURE=false python app.py
+```
+
+Open `http://127.0.0.1:10000`. Check `http://127.0.0.1:10000/health`.
 
 ## Safe rollout
-
-1. Deploy this branch to the Render service.
-2. Confirm the required environment variables are set in Render.
-3. Keep `ENABLE_FACEBOOK_PUBLISHING=false`.
-4. Sign in and run several manual news checks.
-5. Open each source link and verify the Nepali summary, source credit, and freshness.
-6. Only after the drafts are consistently accurate, set `ENABLE_FACEBOOK_PUBLISHING=true`.
-
-Facebook publishing uses the Page `/{page-id}/feed` endpoint and sends a text message only. The code defaults to publishing OFF.
-
-## Groq API key handling
-
-NayaDrishti can be configured with up to three Groq API key environment variables: `GROQ_API_KEY`, `GROQ_API_KEY_2`, and `GROQ_API_KEY_3`. The app can move to a backup key when a preceding key is rejected for an authentication error. It does not rotate keys after HTTP 429 rate-limit responses: Groq documents rate limits at the organization level, so multiple keys in one organization do not multiply its quota. Rate-limit responses are respected and handled through the existing pause logic. Keep all keys private and use only credentials you are authorized to manage.
-
-## AI reliability and request limits
-
-Groq requests are serialized, article context is bounded, and temporary rate-limit/server errors receive a small bounded retry. Each scan makes at most five AI requests by default. Stories that cannot be summarized are not marked as seen, so later scans can retry them. One story's summary error is recorded without aborting unrelated stories; a provider-wide rate-limit or oversized-request error stops further AI calls for that scan to avoid repeatedly hitting the same limit.
-
-## Monitoring limits
-
-The dashboard scheduler runs only while the Render web service is awake. Free web services can sleep, so this does not guarantee 24/7 monitoring. An always-on worker or external scheduler may be needed for dependable continuous collection; check the hosting plan and cost before enabling one.
-
-## Local run
-
-    pip install -r requirements.txt
-    python app.py
-
-
-## Cross-source coverage review
-
-Each saved draft receives a coverage label based on similar recent headlines collected from different publisher names:
-- **Matching coverage** means similar headlines appeared from multiple publishers. It is a lead for human review, not proof that the underlying claims are true.
-- **Single source** means no sufficiently similar headline from another collected publisher was found.
-- **Needs comparison** flags similar headlines that contain different numeric details; compare the original articles manually.
-
-The comparison uses collected headline text only. It does not independently verify facts, inspect every publisher article, resolve contradictions, or guarantee that two publishers are editorially independent. Always open the original links before approving a draft. Facebook publishing remains OFF by default.
-
-
-## Phase 8 — Nepali news writing quality
-
-The writing pipeline now requests a clear event-first headline, a concise lead, and 2–5 short body lines in simple natural Nepali. It puts the most important confirmed information first, avoids repeated details and clickbait, and preserves names, places, numbers, and uncertainty from the source. Output validation checks headline length and completeness, useful body lines, repeated headline content, Nepali-script balance, and prohibited credits, timestamps, links, and hashtags. Invalid drafts are rejected rather than silently rewritten with invented facts.
-
-
-## Phase 9 — smart categories and breaking-news signals
-
-New drafts are assigned a primary topic category using transparent Nepali/English keyword matching: politics, sports, economy, education, technology, international, or other. The dashboard can filter pending drafts by category or show only potential breaking-news candidates. Potential breaking labels require urgent wording, a higher-priority publisher, and a publication time within the last two hours. This is a triage heuristic, not verification or a guarantee that a story is breaking; editors must open the original report and confirm details. Existing drafts receive the database defaults until new drafts are collected. Breaking candidates are displayed before other pending drafts. Facebook publishing remains OFF by default.
-
-
-## Phase 13 — backup AI provider and recovery
-
-Groq remains the primary writer. If Groq is unavailable because its daily request/token safety budget is reached, it returns HTTP 429, or it has an authentication/provider outage (401/403/selected 5xx), NayaDrishti can try Google Gemini using a separately authorized API key. Configure `GEMINI_API_KEY` in Render; `GEMINI_MODEL` defaults to `gemini-3.8-flash`. The Gemini fallback has its own daily request ceiling (`MAX_FALLBACK_AI_REQUESTS_PER_DAY`, default 50) and shares the overall `MAX_NEWS_POSTS_PER_DAY` ceiling with Groq-created drafts. Provider quotas and billing are independent and still apply; fallback is not a guarantee of uninterrupted generation.
-
-If both providers fail, the story is not marked as seen and remains eligible for a later feed scan. All output goes through the same Nepali quality validation. Facebook publishing remains controlled separately by `ENABLE_FACEBOOK_PUBLISHING` and stays OFF by default.
-
-
-## Phase 14 — provider recovery and Facebook continuity
-
-When Groq returns a rate-limit or temporary provider error, NayaDrishti tries the configured Gemini backup. Gemini retries a temporary 5xx response only once, respects a short Retry-After delay, and does not blindly retry HTTP 429. A temporary Gemini outage creates a persistent cooldown in PostgreSQL; the scanner stops further AI attempts for that scan instead of repeatedly calling an unavailable provider. The remaining stories stay eligible for a later scan.
-
-The dashboard usage panel reports when Gemini is cooling down. Groq and Gemini usage limits are tracked separately, while the overall daily draft ceiling remains shared. This improves recovery but cannot guarantee that a new AI-written post can be created while both providers are unavailable.
-
-Facebook publishing is a separate setting. When ENABLE_FACEBOOK_PUBLISHING=true, a successfully generated and validated post can be sent to the configured Page whether Groq or Gemini wrote it. If both AI providers are unavailable, NayaDrishti safely waits rather than inventing a summary or copying a publisher's article. Facebook's own API permissions, availability and rate limits still apply. Render Free may also sleep, so automatic checks are not guaranteed 24/7.
-
-
-## Phase 15 — long provider-outage recovery queue
-
-Every eligible story is saved to PostgreSQL before its AI-writing attempt. If Groq and Gemini both fail, the story remains in a durable pending queue and is retried automatically when the next retry time arrives. The retry delay grows progressively: 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 12 hours, then once every 24 hours. Queue retention defaults to 7 days and is configurable with `PENDING_NEWS_RETENTION_HOURS`.
-
-To avoid publishing stale news, queued stories older than 72 hours by default are expired rather than auto-published. This safety window is configurable with `PENDING_NEWS_MAX_PUBLISH_AGE_HOURS` (24–168 hours). Completed and expired queue records are cleaned up after 30 days. The admin usage panel shows pending, due-for-retry, and expired queue counts.
-
-The queue does not create a post while both providers are unavailable. When either provider recovers, queued stories are processed before newly discovered stories. A validated post is then saved and sent through the configured Facebook publishing setting. Render Free instances can sleep, so retries happen only while the service or a separate always-on worker is running.
-
-
-## Phase 16 — no-AI headline-only fallback
-
-If Groq and Gemini both fail during a scan, NayaDrishti can still publish a limited, clearly labelled headline notice from an eligible RSS/Google News discovery item. This is **not an AI-written summary**: the post contains only the original headline, a notice that an AI summary is unavailable, and the original article link. It does not copy the article body, invent facts, or pretend that a summary was generated.
-
-The fallback is restricted to HTTPS links, higher-priority configured publishers, dated stories no older than 12 hours, and non-breaking items. Potential breaking/emergency items are held for an AI-written summary or human review. The daily fallback cap defaults to 10 and can be adjusted with `MAX_NON_AI_HEADLINE_POSTS_PER_DAY` (maximum 30). The feature can be disabled with `ENABLE_NON_AI_HEADLINE_PUBLISHING=false`. It still requires `ENABLE_FACEBOOK_PUBLISHING=true` and valid Facebook Page credentials to publish; otherwise it saves a clearly labelled draft. Normal AI-generated posts continue to use Groq/Gemini when available.
-
-
-## Phase 17 — free external scheduler (best-effort wake-up)
-
-GitHub Actions provides an independent scheduled trigger every five minutes. The workflow checks the Asia/Kathmandu clock and sends an authenticated POST to `/scheduled-check` only from 05:00 through 22:55 Nepal time. This request can wake the Render Free web service and start the news scan after the service responds. It does **not** disable, bypass, or guarantee prevention of Render Free spin-down; GitHub scheduled workflows can also be delayed or skipped during platform load. The in-process APScheduler remains enabled as a second trigger while the web service is awake. Both triggers share the application's execution lock to avoid overlapping scans.
-
-### Required one-time setup
-
-1. Generate a long random secret (at least 32 random bytes) and keep it private.
-2. In Render → NayaDrishti → Environment, add `SCHEDULER_SHARED_SECRET` with that secret, then save so the service redeploys.
-3. In GitHub → repository Settings → Secrets and variables → Actions → New repository secret, create a secret named `SCHEDULER_SHARED_SECRET` with the exact same value.
-4. Enable GitHub Actions for this repository. The workflow is `.github/workflows/nayadrishti-scheduler.yml`.
-5. Use the workflow's **Run workflow** button once to test. A successful HTTP 202 means the scheduler request was accepted; check the NayaDrishti dashboard/logs to confirm the scan finished.
-
-The shared secret is never committed to the repository. If it is missing or mismatched, the endpoint returns HTTP 401 and does not start a scan. The external scheduler can reduce idle periods and trigger wake-ups, but it cannot promise the website is always instantly available or that every five-minute run executes exactly on time. GitHub Actions usage and schedule limits apply.
+Keep automatic monitoring and Facebook publishing disabled. Test the landing page, health endpoint, and sign-in before adding the database or news features.
